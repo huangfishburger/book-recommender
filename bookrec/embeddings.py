@@ -14,7 +14,7 @@ class EmbeddingClient:
     def __init__(self, model: str = "text-embedding-3-small"):
         load_dotenv()
         self.model = model
-        self.client = OpenAI()  # 讀 OPENAI_API_KEY
+        self.client = OpenAI()  # read OPENAI_API_KEY
 
     def embed_texts(self, texts, batch_size=100, sleep=0.0, progress=True) -> np.ndarray:
         n = len(texts)

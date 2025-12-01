@@ -10,10 +10,10 @@ from collections import defaultdict, Counter
 import numpy as np
 import pandas as pd
 import faiss
-import ast
+
 # ─────────────────────────────────────────────────────────
-# 路徑（預設：repo/data/process 與 artifacts）
-# 如需覆寫，把 BOOKREC_ROOT 設成你的 repo 根目錄
+# path（Default：repo/data/process and artifacts）
+# To override, set BOOKREC_ROOT to your repository's root directory
 # ─────────────────────────────────────────────────────────
 def _repo_root() -> Path:
     env = os.getenv("BOOKREC_ROOT")
@@ -22,7 +22,7 @@ def _repo_root() -> Path:
 REPO = _repo_root()
 DATA = REPO / "data" / "process"
 ART  = DATA / "artifacts"
-EXCEL_DEFAULT   = DATA / "十類書名_標籤.xlsx"
+EXCEL_DEFAULT   = DATA / "books_tags.xlsx"
 TAG_CACHE_JSON  = ART / "tag_cache.json"
 TAG_VECS_NPY    = ART / "tag_vecs.npy"
 FAISS_INDEX     = ART / "tag_index.faiss"
@@ -31,7 +31,7 @@ def _ensure_dirs():
     ART.mkdir(parents=True, exist_ok=True)
 
 # ─────────────────────────────────────────────────────────
-# 輔助：讀 Excel + 產生 tags 欄
+# Helper: Read Excel + generate 'tags' column
 # ─────────────────────────────────────────────────────────
 def str_to_list(s):
     if isinstance(s, str):
@@ -40,12 +40,11 @@ def str_to_list(s):
 
 def _load_books_with_tags(excel_path: str | Path) -> pd.DataFrame:
     df = pd.read_excel(excel_path, engine="openpyxl")
-    df['tags'] = df['標籤']
-    df["tags"] = df['標籤'].apply(str_to_list)
-    return df[["書名", "分類", "tags"]]
+    df["tags"] = df['tags'].apply(str_to_list)
+    return df[["title", "type", "tags"]]
 
 # ─────────────────────────────────────────────────────────
-# VectorStore：建/載 FAISS + 倒排索引 + IDF（都在這）
+# VectorStore: Build/Load FAISS + Inverted Index + IDF
 # ─────────────────────────────────────────────────────────
 class VectorStore:
     def __init__(self, excel_path: str | Path = EXCEL_DEFAULT):
@@ -60,13 +59,13 @@ class VectorStore:
         self.tag2books: Dict[str, List[int]] = {}
         self.idf: Dict[str, float] = {}
 
-    # ---- offline build（需要一個 embedder 物件，提供 embed_texts(list)->np.ndarray）----
+    # ---- offline build (requires an embedder object providing embed_texts(list)->np.ndarray) ----
     def build(self, rebuild: bool, embedder) -> "VectorStore":
-        print(f"📚 載入 Excel：{self.excel_path}")
+        print(f"load Excel: {self.excel_path}")
         df = _load_books_with_tags(self.excel_path)
         self.df = df
         tags = sorted({t for row in df["tags"] for t in row})
-        print(f"🔎 標籤總數：{len(tags)}")
+        print(f"total tags count: {len(tags)}")
         self.all_tags = tags
         self.tag2id = {t: i for i, t in enumerate(tags)}
         self.id2tag = tags
@@ -76,7 +75,7 @@ class VectorStore:
             cache = json.loads(TAG_CACHE_JSON.read_text(encoding="utf-8"))
 
         missing = tags if rebuild else [t for t in tags if t not in cache]
-        print(f"🧠 缺少嵌入：{len(missing)}（rebuild={rebuild}）")
+        print(f"lack of embedded: {len(missing)}（rebuild={rebuild}）")
         if missing:
             vecs = embedder.embed_texts(missing, batch_size=100, progress=True)
             for t, v in zip(missing, vecs):
@@ -86,20 +85,19 @@ class VectorStore:
         vec_arr = np.array([cache[t] for t in tags], dtype=np.float32)
         vec_arr = vec_arr / (np.linalg.norm(vec_arr, axis=1, keepdims=True) + 1e-9)
 
-        # 建議用原子寫入更穩（可選）
         np.save(str(TAG_VECS_NPY), vec_arr)
-        print(f"💾 向量矩陣已寫入：{TAG_VECS_NPY}")
+        print(f"Vector matrix successfully written:{TAG_VECS_NPY}")
 
         self.tag_vecs = vec_arr
         self._init_faiss()
         faiss.write_index(self.index, str(FAISS_INDEX))
-        print(f"📦 FAISS 索引已寫入：{FAISS_INDEX}")
+        print(f"FAISS index successfully written:{FAISS_INDEX}")
 
         self._build_inverted_and_idf()
-        print("✅ 建庫完成！")
+        print("Index built successfully!")
         return self
 
-    # ---- runtime load（不需要 embedder）----
+    # ---- runtime load（do not need embedder）----
     def load(self) -> "VectorStore":
         df = _load_books_with_tags(self.excel_path)
         self.df = df
@@ -109,13 +107,13 @@ class VectorStore:
         self.id2tag = tags
 
         if not TAG_VECS_NPY.exists():
-            raise RuntimeError("找不到向量檔，請先執行建庫（build）。")
+            raise RuntimeError("Vector file not found. Please run build() first.")
 
         vec_arr = np.load(TAG_VECS_NPY)
         if vec_arr.shape[0] != len(tags):
-            raise RuntimeError("標籤數量與已存向量數不同，請重建：build(rebuild=True)")
+            raise RuntimeError("Tag count does not match the number of stored vectors. Please rebuild: build(rebuild=True)")
 
-        # 確保 L2-normalized
+        # L2-normalized
         vec_arr = vec_arr / (np.linalg.norm(vec_arr, axis=1, keepdims=True) + 1e-9)
         self.tag_vecs = vec_arr
         self._init_faiss()
@@ -144,21 +142,21 @@ class VectorStore:
         return [(self.id2tag[i], float(s)) for i, s in zip(idx[0], sim[0]) if s >= sim_th]
 
     def tags_for_book(self, title: str) -> List[str]:
-        m = self.df[self.df["書名"] == title]
+        m = self.df[self.df["title"] == title]
         if m.empty:
             return []
         return sorted({t for row in m["tags"] for t in row})
 
 # ─────────────────────────────────────────────────────────
 # SearchService：term→books / books→books / term→keywords / book→keywords
-# （term 需要「即時嵌入」→ 交給外部 embedder.embed_text）
+# (term requires 'real-time embedding' → delegated to external embedder.embed_text)
 # ─────────────────────────────────────────────────────────
 class SearchService:
     def __init__(self, store: VectorStore, embedder = None):
         self.store = store
         self.embedder = embedder
     
-    # --- helper: 逗號分詞（支援全形/半形），去空白、去重但保序 ---
+    # --- helper: Comma tokenization (supports full-width/half-width), remove whitespace, deduplicate while preserving order ---
     @staticmethod
     def _parse_terms(query_input: str):
         parts = re.split(r"[,\uFF0C]+", str(query_input))
@@ -173,13 +171,11 @@ class SearchService:
     @staticmethod
     def _parse_titles(titles_input: str) -> list[str]:
         """
-        多本書名以分號分隔：; 或 全形 ；
-        逗號（,，）視為書名內容，不會用來切分。
-        會做 NFKC 正規化與去頭尾空白；去重但保序。
+        Multiple book titles are separated by a semicolon: ; or full-width ；
+        Commas (,，) are treated as part of the book title content and are not used for splitting.
+        Performs NFKC normalization and trims leading/trailing whitespace; deduplicates while preserving order.
         """
-        # 切分分號
         parts = re.split(r"[;\uFF1B]+", str(titles_input))
-        # 清理空白、去重保序
         seen, out = set(), []
         for p in parts:
             t = p.strip()
@@ -202,7 +198,7 @@ class SearchService:
         terms = self._parse_terms(query_input)
         if not terms:
             return pd.DataFrame(
-                columns=["書名", "分類", "score", "exact_hits", "similar_hits"]
+                columns=["title", "type", "score", "exact_hits", "similar_hits"]
             )
 
         per_term_scores   = {}  # term -> {book_idx: score}
@@ -210,7 +206,7 @@ class SearchService:
         per_term_similar  = {}  # term -> {book_idx: similar match count}
 
         for term in terms:
-            # 1) 拿到 term 向量
+            # take term vector
             if term in self.store.tag2id:
                 q_vec = self.store.tag_vecs[self.store.tag2id[term]]
             else:
@@ -238,7 +234,7 @@ class SearchService:
         all_books = set().union(*(d.keys() for d in per_term_scores.values()))
         if not all_books:
             return pd.DataFrame(
-                columns=["書名", "分類", "score", "exact_hits", "similar_hits"]
+                columns=["title", "type", "score", "exact_hits", "similar_hits"]
             )
 
         final_scores       = {}
@@ -246,7 +242,7 @@ class SearchService:
         similar_hits_count = {}
 
         for bi in all_books:
-            # 聚合各 term 的得分和命中
+            # Aggregate scores and hits for each term
             scores_by_term = [per_term_scores[t].get(bi, 0.0) for t in terms]
             total_exact    = sum(per_term_exact[t].get(bi, 0) for t in terms)
             total_similar = sum(per_term_similar[t].get(bi, 0) for t in terms)
@@ -254,7 +250,7 @@ class SearchService:
             exact_hits_count[bi]   = total_exact
             similar_hits_count[bi] = total_similar
 
-            # 計算最終 score
+            # calculate final score
             if mode == "sum":
                 final = sum(scores_by_term)
             elif mode == "avg":
@@ -262,7 +258,7 @@ class SearchService:
             elif mode == "min":
                 final = min(scores_by_term)
             elif mode == "soft_and":
-                # 這裡 cooccur_bonus 還是用「term 命中數 - 1」
+                # cooccur_bonus is still calculated as 'term hit count - 1'
                 term_hits = sum(1 for v in scores_by_term if v > 0)
                 final = sum(scores_by_term) + cooccur_bonus * max(0, term_hits - 1)
             else:
@@ -270,12 +266,12 @@ class SearchService:
 
             final_scores[bi] = final
 
-        # 取 topk
+        # topk
         top = sorted(final_scores.items(), key=lambda x: -x[1])[:topk]
         df = self.store.df
 
         out = (
-            df.loc[[i for i, _ in top], ["書名", "分類", "tags"]]
+            df.loc[[i for i, _ in top], ["title", "type", "tags"]]
             .assign(
                 score=[round(final_scores[i], 3) for i, _ in top],
                 exact_hits=[exact_hits_count[i] for i, _ in top],
@@ -292,18 +288,18 @@ class SearchService:
             mode = "soft_and"
 
         src_titles = self._parse_titles(titles_input)
-        # 空結果返回時包含新欄位
+        # Empty results should include new columns
         if not src_titles:
-            return pd.DataFrame(columns=["書名", "分類", "match_count", "score", "source_hits"])
+            return pd.DataFrame(columns=["title", "type", "match_count", "score", "source_hits"])
 
         df = self.store.df
 
-        # 蒐集每本來源書的候選分數
+        # Collect candidate scores for each source book
         per_src_counts: dict[str, dict[int, int]]   = {}
         per_src_scores: dict[str, dict[int, float]] = {}
         per_src_books:  dict[str, set[int]]         = {}
 
-        # 用於排除來源書本身
+        # Used to exclude the source book itself
         src_indices = set(df.index[df["書名"].isin(src_titles)].tolist())
 
         for title in src_titles:
@@ -329,7 +325,7 @@ class SearchService:
                         contrib_c[bi] += 1
                         contrib_s[bi] += s
 
-            # 排除來源書本身索引
+            # Exclude the source book's own index
             for idx in list(contrib_c.keys()):
                 if idx in src_indices:
                     contrib_c.pop(idx, None)
@@ -339,10 +335,10 @@ class SearchService:
             per_src_scores[title] = dict(contrib_s)
             per_src_books[title]  = set(contrib_c.keys()) | set(contrib_s.keys())
 
-        # 合併所有來源的候選
+        # Merge candidates from all sources
         all_books = set().union(*per_src_books.values()) if per_src_books else set()
         if not all_books:
-            return pd.DataFrame(columns=["書名", "分類", "match_count", "score", "source_hits"])
+            return pd.DataFrame(columns=["title", "type", "match_count", "score", "source_hits"])
 
         final_count: dict[int, float] = {}
         final_score: dict[int, float] = {}
@@ -351,11 +347,11 @@ class SearchService:
         for bi in all_books:
             counts_by_src = [per_src_counts[t].get(bi, 0)    for t in src_titles]
             scores_by_src = [per_src_scores[t].get(bi, 0.0)  for t in src_titles]
-            # source_hits: 不同來源書至少 match 一次的數量
+            # source_hits: The number of unique source books that matched at least once
             k = sum(1 for v in scores_by_src if v > 0.0)
             source_hits[bi] = k
 
-            # match_count 的合併：sum/avg/min/soft_and
+            # match_count combination: sum/avg/min/soft_and
             if mode == "sum":
                 c_final = sum(counts_by_src)
                 s_final = sum(scores_by_src)
@@ -375,13 +371,13 @@ class SearchService:
             final_score[bi] = s_final
 
         if not final_score:
-            return pd.DataFrame(columns=["書名", "分類", "match_count", "score", "source_hits"])
+            return pd.DataFrame(columns=["title", "type", "match_count", "score", "source_hits"])
 
-        # 排序：先看 match_count 再看 score
+        # order: Prioritize by match_count, then by score
         cand = sorted(final_score.keys(), key=lambda i: (-final_count[i], -final_score[i]))[:topk]
 
         out = (
-            df.loc[cand, ["書名", "分類"]]
+            df.loc[cand, ["title", "type"]]
               .assign(
                   score=[round(float(final_score[i]), 3) for i in cand],
                   source_hits=[source_hits[i] for i in cand],
@@ -394,7 +390,7 @@ class SearchService:
 
     # term → keywords
     def term_to_keywords(self, query: str, k: int = 10, sim_th: float = 0.60) -> pd.DataFrame:
-        # 1) 取得查詢向量（同上）
+        # 1) Get query vector (same as above)
         if query in self.store.tag2id:
             q_vec = self.store.tag_vecs[self.store.tag2id[query]]
             self_id = self.store.tag2id[query]
@@ -402,11 +398,11 @@ class SearchService:
             q_vec = self.embedder.embed_text(query)
             self_id = None
 
-        # 2) 用 FAISS 先抓比較大的候選池（自動設定）
+        # 2) Use FAISS to retrieve a larger candidate pool (automatically configured)
         candidates_k = max(50, k * 5)
         matched = self.store.similar_tags_by_vec(q_vec, topk=candidates_k, sim_th=sim_th)
 
-        # 3) 排除自己、取前 k
+        # 3) Exclude self, take top k
         out = []
         for tag, s in matched:
             if self_id is not None and tag == self.store.id2tag[self_id]:
@@ -422,11 +418,9 @@ class SearchService:
     
     # book → keywords
     def book_to_keywords(self, title: str, k: int = 10) -> List[str]:
-        # 1) 取得書本對應的主題詞
+        # 1) Retrieve the corresponding tags for the book
         tags = self.store.tags_for_book(title)
-        
-        # 2) 取前 k 個
-        result_tags = tags[:k]
 
-        # 3) 回傳
+        # 2) select top k
+        result_tags = tags[:k]
         return result_tags

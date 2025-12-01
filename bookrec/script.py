@@ -9,7 +9,6 @@ from bookrec.embeddings import EmbeddingClient
 from bookrec.core import VectorStore, SearchService
 from data.code.add_tags import batch_generate_labels
 
-# 從 evaluation 重用 BM25 工具
 from data.code.evaluation import evaluate_bm25, evaluate_cosine
 from data.code.evaluation import tokenize, BM25, BM25Params
 
@@ -18,12 +17,11 @@ from scipy.spatial.distance import cosine as cosine_distance
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-# 降低 OMP 衝突風險
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 def merge_query_tokens(tags, tokenizer: str, ngram: int, merged_tf: str):
-    """與 evaluation.py 的行為一致：把多個詞合併成查詢 token 列表"""
+    """Aligns input behavior with evaluation.py: consolidates multiple terms into a single query token list."""
     all_tokens = []
     for tag in tags:
         all_tokens.extend(tokenize(tag, mode=tokenizer, ngram=ngram))
@@ -53,48 +51,48 @@ def clean_text(text: str) -> str:
 def main():
     p = argparse.ArgumentParser(description="BookRec Simple Tester + BM25 evaluation")
 
-    # （選用）重生標籤
-    p.add_argument("--regen-tags", type=str, default="false", help="true/false 是否重跑標籤生成")
-    p.add_argument("--gpt-model", type=str, default="gpt-4o", help="生成標籤時使用的 GPT 模型")
+    # (Optional) Regenerate tags
+    p.add_argument("--regen-tags", type=str, default="false", help="true/false: Whether to regenerate all tags.")
+    p.add_argument("--gpt-model", type=str, default="gpt-4o", help="GPT model used for tag generation.")
     p.add_argument("--books-csv", type=str, default="data/process/processed_books.csv")
-    p.add_argument("--regen-range", type=str, default=None, help="start:endExclusive，-1 表示最後，如 1100:-1")
+    p.add_argument("--regen-range", type=str, default=None, help="start:endExclusive. Use -1 for the end, e.g., 1100:-1.")
     p.add_argument("--save-every", type=int, default=500)
 
-    # 標籤生成的可調 prompt 參數
-    p.add_argument("--system-prompt", type=str, default="你的主要工作是根據每本書的內容，提供對應的主題詞。",
-                   help="生成標籤時的 system prompt（可覆寫預設）")
-    p.add_argument("--prompt-inline", type=str, default="", help="直接提供 user prompt 模板字串，支援 {title} {author} {summary}")
-    p.add_argument("--prompt-file", type=str, default="", help="從檔案載入 user prompt 模板（UTF-8），支援 {title} {author} {summary}")
-    p.add_argument("--temperature", type=float, default=0.3, help="生成標籤時的 temperature")
-    
+    # Tunable prompt parameters for tag generation
+    p.add_argument("--system-prompt", type=str, default="Your main task is to provide corresponding subject tags based on the content of each book.",
+                help="System prompt for tag generation (overrides default).")
+    p.add_argument("--prompt-inline", type=str, default="", help="Directly provide a user prompt template string, supporting {title} {author} {summary}.")
+    p.add_argument("--prompt-file", type=str, default="", help="Load user prompt template from file (UTF-8), supporting {title} {author} {summary}.")
+    p.add_argument("--temperature", type=float, default=0.3, help="Temperature for tag generation.")
+
     p.add_argument("--eval-tags-bm25", dest="eval_tags_bm25", type=str, default="false",
-               help="true/false：完成標籤檔後，跑 evaluation.py 的 BM25 評估")
+                help="true/false: After generating tags, run BM25 evaluation using evaluation.py.")
     p.add_argument("--eval-out-csv-bm25", dest="eval_out_csv_bm25", type=str,
                 default="data/process/bm25_eval_summary.csv")
     p.add_argument("--eval-out-jsonl-bm25", dest="eval_out_jsonl_bm25", type=str,
                 default="data/process/bm25_eval_details.jsonl")
     
     p.add_argument("--eval-tags-cosine", dest="eval_tags_cosine", type=str, default="false",
-               help="true/false：完成標籤檔後，跑 evaluation.py 的 cosine similarity 評估")
+               help="true/false: After generating tags, run cosine similarity evaluation using evaluation.py.")
     p.add_argument("--eval-out-csv-cosine", dest="eval_out_csv_cosine", type=str,
                 default="data/process/cosine_eval_summary.csv")
     p.add_argument("--eval-out-jsonl-cosine", dest="eval_out_jsonl_cosine", type=str,
                 default="data/process/cosine_eval_details.jsonl")
 
-    # Excel 與向量庫
-    p.add_argument("--excel", type=str, default="data/process/十類書名_標籤.xlsx")
+    # Excel and Vector Store
+    p.add_argument("--excel", type=str, default="data/process/十類title_標籤.xlsx")
     p.add_argument("--embedding-model", type=str, default="text-embedding-3-small")
-    p.add_argument("--rebuild-index", type=str, default="false", help="true/false 是否重建向量庫")
+    p.add_argument("--rebuild-index", type=str, default="false", help="true/false: Whether to rebuild the vector store index.")
 
-    # 詞找書：輸入
-    p.add_argument("--terms", type=str, default="", help="直接輸入查詢，多個查詢用分號分隔；每個查詢內用逗號分詞。例如：'心理學,成長; 投資,理財'")
-    p.add_argument("--terms-file", type=str, default="", help="txt 檔，每行一個查詢 terms（用逗號分詞）")
+    # Term-to-Books Search: Inputs
+    p.add_argument("--terms", type=str, default="", help="Direct query input. Separate multiple queries with semicolon; terms within each query are comma-separated. E.g.: 'psychology,growth; investment,finance'")
+    p.add_argument("--terms-file", type=str, default="", help="Text file, one query per line (terms separated by commas).")
 
-    # 書搜書：輸入
-    p.add_argument("--books", type=str, default="", help="來源書名，分號分隔。例：'被討厭的勇氣; 原子習慣'")
-    p.add_argument("--books-file", type=str, default="", help="txt 檔，每行一個來源書名")
+    # Books-to-Books Search: Inputs
+    p.add_argument("--books", type=str, default="", help="Source book titles, separated by semicolon. E.g.: 'The Courage to Be Disliked; Atomic Habits'")
+    p.add_argument("--books-file", type=str, default="", help="Text file, one source book title per line.")
 
-    # 檢索參數（單一組）
+    # Retrieval Parameters (Single Set)
     p.add_argument("--sim-th", type=float, default=0.55)
     p.add_argument("--topk", type=int, default=10)
     p.add_argument("--tag-topk", type=int, default=20)
@@ -102,87 +100,78 @@ def main():
     p.add_argument("--use-idf", type=str, default="false")
     p.add_argument("--cooccur-bonus", type=float, default=0.2)
 
-    # （選用）標籤評估（BM25）
+    # (Optional) Tag Evaluation (BM25)
     p.add_argument("--bm25-mode", dest="bm25_mode", type=str, default="both",
-                   choices=["both","tag-each","tag-merged"])
+                choices=["both","tag-each","tag-merged"])
     p.add_argument("--bm25-tokenizer", dest="tokenizer", type=str, default="auto",
-                   choices=["auto","jieba","whitespace","char"])
+                choices=["auto","jieba","whitespace","char"])
     p.add_argument("--bm25-ngram", dest="ngram", type=int, default=2)
     p.add_argument("--bm25-k1", dest="bm25_k1", type=float, default=1.2)
     p.add_argument("--bm25-b", dest="bm25_b", type=float, default=0.75)
     p.add_argument("--bm25-merged-tf", dest="merged_tf", type=str, default="binary",
-                   choices=["binary","log","raw"])
+                choices=["binary","log","raw"])
     p.add_argument("--bm25-normalize-query", dest="bm25_normalize_query", type=str, default="true",
-                   choices=["true","false"])
+                choices=["true","false"])
     p.add_argument("--bm25-topk-mean", dest="bm25_topk_mean", type=int, default=5)
 
-    # （選用）標籤評估（cosine similarity）
-    p.add_argument("--cosine-mode", dest="cosine_mode", type=str, default="both",
-                   choices=["both","tag-each","tag-merged"])
-    p.add_argument("--embedding-level", dest="embedding_level", type=str, default="sentence-max",
-                    choices=["sentence-max","sentence-avg"])
-    p.add_argument("--cosine-normalize-query", dest="cosine_normalize_query", type=str, default="true",
-                   choices=["true","false"])
-    p.add_argument("--cosine-topk-mean", dest="cosine_topk_mean", type=int, default=5)
-
-    # 書搜書 BM25 設定
+    # Books-to-Books BM25 Settings
     p.add_argument("--bookq-mode-bm25", type=str, default="tags", choices=["tags","summary"],
-                   help="書搜書時 BM25 查詢使用來源書的 tags（合併）或 summary")
+                help="For Books-to-Books search, use source book's tags (merged) or summary for BM25 query.")
     p.add_argument("--bookq-merged-tf-bm25", type=str, default="binary", choices=["binary","log","raw"],
-                   help="當 bookq-mode=tags 時，合併 TF 的方式")
+                help="Merging method for TF when bookq-mode=tags.")
     p.add_argument("--bookq-normalize-bm25", type=str, default="true", choices=["true","false"],
-                   help="是否對書搜書的 BM25 查詢做長度正規化")
-    
-    # 書搜書 cosine similarity 設定
+                help="Normalize length for Books-to-Books BM25 query.")
+
+    # Books-to-Books Cosine Similarity Settings
     p.add_argument("--bookq-mode-cosine", type=str, default="tags", choices=["tags","summary"],
-                   help="書搜書時 cosine similarity 查詢使用來源書的 tags（合併）或 summary")
+                help="For Books-to-Books search, use source book's tags (merged) or summary for cosine similarity query.")
     p.add_argument("--embedding-level-books", dest="embedding_level_books", type=str, default="sentence-max",
-                    choices=["sentence-max","sentence-avg"])
+                choices=["sentence-max","sentence-avg"])
     p.add_argument("--bookq-normalize-cosine", type=str, default="true", choices=["true","false"],
-                   help="是否對書搜書的 cosine similarity 查詢做長度正規化")
-    
-    # 書搜書 Diagnostic 指標設定
+                help="Normalize length for Books-to-Books cosine similarity query.")
+
+    # Books-to-Books Diagnostic Metrics Settings
     p.add_argument("--bookq-title-sim", type=str, default="true", choices=["true","false"],
-                   help="是否對書搜書的結果額外計算書名 similarity")
+                help="Additionally calculate book title similarity for Books-to-Books results.")
     p.add_argument("--bookq-type-sim", type=str, default="true", choices=["true","false"],
-                   help="是否對書搜書的結果額外計算類別 similarity")
+                help="Additionally calculate category similarity for Books-to-Books results.")
 
-    # （選用）對「詞找書結果」加算 BM25（現在改為 per-term 聚合）
+    # (Optional) Score BM25 for 'Term-to-Books Search' (Now aggregated per-term)
     p.add_argument("--score-search-bm25", type=str, default="true",
-                   help="true/false：對每個查詢與命中書籍簡介計算 BM25（per-term 聚合）")
+                help="true/false: Calculate BM25 between each query term and the hit book's summary (aggregated per-term).")
     p.add_argument("--terms-bm25-agg-bm25", dest="terms_bm25_agg",
-                   type=str, default="avg", choices=["sum","avg","min"],
-                   help="詞找書的 BM25 聚合：對每個 term 各自打分後，做 sum/avg/min")
+                type=str, default="avg", choices=["sum","avg","min"],
+                help="BM25 aggregation for Term-to-Books: aggregate per-term scores using sum/avg/min.")
     
-    # （選用）對「詞找書結果」加算 cosine similarity
+    # (Optional) Score Cosine Similarity for 'Term-to-Books Search'
     p.add_argument("--score-search-cosine", type=str, default="true",
-                   help="true/false：對每個查詢與命中書籍簡介計算 cosine similarity")
+                help="true/false: Calculate cosine similarity between each query term and the hit book's summary.")
     p.add_argument("--embedding-level-terms", dest="embedding_level_terms", type=str, default="sentence-max",
-                    choices=["sentence-max","sentence-avg"])
+                choices=["sentence-max","sentence-avg"])
 
-    # 輸出
+    # output
     p.add_argument("--out", type=str, default="results.jsonl")
 
     args = p.parse_args()
     as_bool = lambda s: str(s).lower() in {"1", "true", "yes", "y"}
 
-    # ---- 開始時間 ----
+    # ---- start time ----
     start_time = time.time()
     start_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # ---- 建立結果資料夾 ----
+    # ---- build results folder ----
     today_str = datetime.datetime.now().strftime("%Y%m%d")  # e.g. 20250917
     out_dir = f"experiment/{today_str}"
     os.makedirs(out_dir, exist_ok=True)
 
-    # 0) （選用）生標籤
+    # 0) (Optional) Tag generation
     prompt_src = "default"
     if as_bool(args.regen_tags):
         start, end = 0, -1
         if args.regen_range:
             m = re.match(r"^(-?\d+):(-?\d+)$", args.regen_range.strip())
             if not m:
-                raise ValueError("--regen-range 格式錯誤，例 1100:-1")
+                raise ValueError("--regen-range format error, e.g. 1100:-1")
             start, end = int(m.group(1)), int(m.group(2))
 
         prompt_tpl = None
@@ -193,7 +182,7 @@ def main():
             prompt_tpl = Path(args.prompt_file).read_text(encoding="utf-8")
             prompt_src = f"file:{args.prompt_file}"
 
-        # 兼容 batch_generate_labels 是否支援新參數：動態檢查簽章
+        # Check signature dynamically to ensure compatibility with batch_generate_labels new parameters.
         call_kwargs = dict(
             books_csv=args.books_csv,
             output_file=args.excel,
@@ -211,9 +200,9 @@ def main():
             call_kwargs["temperature"] = args.temperature
 
         batch_generate_labels(**call_kwargs)
-        print("✓ 標籤生成完成。")
+        print("Successfully generate tags")
 
-    # 1) （選用）對標籤做 BM25 評估
+    # 1) (Optional) Run BM25 evaluation on tags
     if as_bool(args.eval_tags_bm25):
         evaluate_bm25(
             excel=args.excel,
@@ -229,9 +218,9 @@ def main():
             normalize_query=as_bool(args.bm25_normalize_query),
             topk_mean=args.bm25_topk_mean,
         )
-        print(f"✓ 標籤 BM25 評估完成 -> {args.eval_out_csv_bm25}")
+        print(f"Tag BM25 Evaluation Completed -> {args.eval_out_csv_bm25}")
 
-    # 1b) （選用）對標籤做 cosine similarity 評估
+    # 1b) (Optional) Run cosine similarity evaluation on tags
     if as_bool(args.eval_tags_cosine):
         evaluate_cosine(
             excel=args.excel,
@@ -243,9 +232,9 @@ def main():
             normalize_query=as_bool(args.cosine_normalize_query),
             topk_mean=args.cosine_topk_mean,
         )
-        print(f"✓ 標籤 Cosine 相似度評估完成 -> {args.eval_out_csv_cosine}")
+        print(f"Tag Cosine Similarity Evaluation Completed ->  {args.eval_out_csv_cosine}")
 
-    # 2) 構建/載入向量庫（詞找書/書搜書用）
+    # 2)  Build/Load Vector Store (used for Term-to-Books / Books-to-Books)
     embedder = EmbeddingClient(model=args.embedding_model)
     store = VectorStore(excel_path=args.excel)
     if as_bool(args.rebuild_index):
@@ -253,7 +242,7 @@ def main():
     else:
         store.load()
 
-    # 3) 讀取 queries（詞找書）
+    # 3)Read queries (Term-to-Books)
     queries = []
     if args.terms:
         for part in args.terms.split(";"):
@@ -266,10 +255,10 @@ def main():
                 q = line.strip()
                 if q:
                     queries.append(q)
-    # if not queries:
-    #     queries = ["心理學,成長"]
+    if not queries:
+        queries = ["growth"]
 
-    # 3b) 讀取來源書（書搜書）
+    # 3b) Read source books (Books-to-Books)
     src_books = []
     if args.books:
         src_books = [s.strip() for s in re.split(r"[;\uFF1B]+", args.books) if s.strip()]
@@ -279,28 +268,26 @@ def main():
                 t = line.strip()
                 if t:
                     src_books.append(t)
-    # if not src_books:
-    #     src_books = ["一億元的分手費;洛克菲勒寫給兒子的38封信"]
 
-    # 4) 建 BM25 語料（summary 全庫）& cosine similarity
-    books_df = pd.read_csv(args.books_csv).drop_duplicates(subset=["書名"]).reset_index(drop=True)
+    # 4) Build BM25 Corpus (full summary corpus) & cosine similarity
+    books_df = pd.read_csv(args.books_csv).drop_duplicates(subset=["title"]).reset_index(drop=True)
     docs = []
     title_to_docid = {}
     title_to_summary = {}
     for _, r in books_df.iterrows():
-        title = str(r.get("書名", "")).strip()
-        summary = str(r.get("書籍簡介", "")).strip()
+        title = str(r.get("title", "")).strip()
+        summary = str(r.get("introduction", "")).strip()
         tokens = tokenize(summary, mode=args.tokenizer, ngram=args.ngram)
         title_to_docid[title] = len(docs)
         title_to_summary[title] = summary
         docs.append(tokens)
     bm25 = BM25(docs, BM25Params(k1=args.bm25_k1, b=args.bm25_b))
 
-    # 5) 詞找書 + BM25（per-term 聚合）
+    # 5) Term-to-Books search + BM25 scoring (per-term aggregation)
     svc = SearchService(store, embedder)
     out_rows = []
 
-    terms_csv_rows = []  # ← 新增：彙整成一張表
+    terms_csv_rows = []  
     for q in queries:
         df = svc.terms_to_books(
             query_input=q,
@@ -313,13 +300,13 @@ def main():
         )
 
         terms_split = [s.strip() for s in re.split(r"[,，]+", q) if s.strip()]
-        # per-term BM25 聚合（sum/avg/min）& cosine similarity
+        #  BM25 scoring per-term aggregation（sum/avg/min）& cosine similarity
         bm25_scores = []
-        per_term_list = []  # 如要日後輸出細項可用
+        per_term_list = []
         q_emb = np.mean(embedder.embed_texts(terms_split), axis=0)
         cosine_scores = []
         for _, r in df.iterrows():
-            did = title_to_docid.get(r["書名"])
+            did = title_to_docid.get(r["title"])
             # BM25
             if did is None:
                 bm25_scores.append(0.0)
@@ -339,7 +326,7 @@ def main():
             per_term_list.append(per_term_scores)
 
             # cosine similarity
-            sentences = title_to_summary.get(r["書名"], "").split("。")
+            sentences = title_to_summary.get(r["title"], "").split("。")
             sentences = [clean_text(d) for d in sentences]
             sentences = [d for d in sentences if d]
             book_emb = embedder.embed_texts(sentences)
@@ -359,16 +346,16 @@ def main():
         )
 
         print(f"\n=== Terms Query: {q} (agg={args.terms_bm25_agg}) ===")
-        show_cols = ["書名", "分類", "score", "bm25_score", "cosine_score"]
+        show_cols = ["title", "type", "score", "bm25_score", "cosine_score"]
         print(df[show_cols].head(args.topk))
 
-        # 累積彙整表列（rank 化）
+        # Accumulate and consolidate results table (rank normalization applied).
         for rank, (_, row) in enumerate(df.iterrows(), start=1):
             terms_csv_rows.append({
                 "query": q,
                 "rank": rank,
-                "書名": row["書名"],
-                "分類": row["分類"],
+                "title": row["title"],
+                "type": row["type"],
                 "score": row["score"],
                 "bm25_score": row["bm25_score"],
                 "cosine_score": row["cosine_score"],
@@ -378,13 +365,13 @@ def main():
 
         out_rows.append({"type": "terms_to_books", "query": q, "results": df.to_dict(orient="records")})
 
-    # 6) 書搜書 + BM25
-    books_csv_rows = []  # ← 新增：彙整成一張表
+    # 6) books to books + BM25
+    books_csv_rows = [] 
     if src_books:
-        # 來源書「查詢」的 token：依 bookq-mode 而定
-        excel_df = pd.read_excel(args.excel).drop_duplicates(subset=["書名"]).reset_index(drop=True)
+        # Source book query tokens: depends on 'bookq-mode' setting
+        excel_df = pd.read_excel(args.excel).drop_duplicates(subset=["title"]).reset_index(drop=True)
         title_to_tags = {
-            str(r["書名"]).strip(): [s.strip() for s in str(r["標籤"]).split(",") if s and s.strip()]
+            str(r["title"]).strip(): [s.strip() for s in str(r["tags"]).split(",") if s and s.strip()]
             for _, r in excel_df.iterrows()
         }
 
@@ -400,22 +387,22 @@ def main():
 
             title_split = [s.strip() for s in re.split(r"[;；]+", titles) if s.strip()]
             for title in title_split:
-                # BM25 查詢：tags 合併 或 summary
+                # BM25 Query: merged tags OR summary
                 if args.bookq_mode_bm25 == "tags":
                     tags = title_to_tags.get(title, [])
                     q_tokens = merge_query_tokens(tags, tokenizer=args.tokenizer,
                                                 ngram=args.ngram, merged_tf=args.bookq_merged_tf_bm25)
                 else:  # summary
-                    src_row = books_df[books_df["書名"] == title]
-                    src_summary = str(src_row.iloc[0]["書籍簡介"]) if not src_row.empty else ""
+                    src_row = books_df[books_df["title"] == title]
+                    src_summary = str(src_row.iloc[0]["introduction"]) if not src_row.empty else ""
                     q_tokens = tokenize(src_summary, mode=args.tokenizer, ngram=args.ngram)
 
-                # cosine similarity 查詢：tags 合併 或 summary
+                # Cosine Similarity Query: merged tags OR summary
                 if args.bookq_mode_cosine == "tags":
                     tags = title_to_tags.get(title, [])
                 else:  # summary
-                    src_row = books_df[books_df["書名"] == title]
-                    src_summary = str(src_row.iloc[0]["書籍簡介"]) if not src_row.empty else ""
+                    src_row = books_df[books_df["title"] == title]
+                    src_summary = str(src_row.iloc[0]["introduction"]) if not src_row.empty else ""
                 
                 # diagnostic：title
                 if as_bool(args.bookq_title_sim):
@@ -423,7 +410,7 @@ def main():
                     title_clean = np.ravel(title_clean) if title_clean is not None else None
 
                     emb = pd.DataFrame()
-                    emb["title_emb"] = df["書名"].apply(lambda t: np.ravel(embedder.embed_text(clean_text(str(t)))))
+                    emb["title_emb"] = df["title"].apply(lambda t: np.ravel(embedder.embed_text(clean_text(str(t)))))
                     if title_clean is not None:
                         sim_list_title = [1 - cosine_distance(r_emb, title_clean) for r_emb in emb["title_emb"]]
                         if "title_sim" not in df.columns:
@@ -432,29 +419,29 @@ def main():
 
                 # diagnostic: type
                 if as_bool(args.bookq_type_sim):
-                    src_row = books_df[books_df["書名"] == title]
-                    src_type = str(src_row.iloc[0]["書籍分類第二層"]) if not src_row.empty else ""
+                    src_row = books_df[books_df["title"] == title]
+                    src_type = str(src_row.iloc[0]["type"]) if not src_row.empty else ""
 
                     src_type_emb = embedder.embed_text(src_type)
                     src_type_emb = np.ravel(src_type_emb) if src_type_emb is not None else None
 
                     emb = pd.DataFrame()
-                    emb["type_emb"] = df["分類"].apply(lambda t: np.ravel(embedder.embed_text(str(t))))
+                    emb["type_emb"] = df["type"].apply(lambda t: np.ravel(embedder.embed_text(str(t))))
                     if src_type_emb is not None:
                         sim_list_type =[1 - cosine_distance(r_emb, src_type_emb) for r_emb in emb["type_emb"]]
                         if "type_sim" not in df.columns:
                             df["type_sim"] = 0.0
                         df["type_sim"] = df["type_sim"] + sim_list_type
 
-                # 打分
+                # score
                 scores_bm = []
                 scores_cosine = []
                 norms_bm = []
                 norms_cosine = []
                 q_len = len(q_tokens)
                 for _, r in df.iterrows():
-                    did = title_to_docid.get(r["書名"])
-                    res_summary = title_to_summary.get(r["書名"])
+                    did = title_to_docid.get(r["title"])
+                    res_summary = title_to_summary.get(r["title"])
                     # BM25
                     s = float(bm25.score(q_tokens, did)) if did is not None and q_len > 0 else 0.0
                     scores_bm.append(round(s, 6))
@@ -506,7 +493,7 @@ def main():
             df["cosine_score"] = round(df["cosine_score"] / len(title_split),4)
             
             print(f"\n=== Books Query: {titles} (bm25: {args.bookq_mode_bm25})(cosine: {args.bookq_mode_cosine}) ===")
-            show_cols = ["書名", "分類", "score", "bm25_score", "cosine_score"]
+            show_cols = ["title", "type", "score", "bm25_score", "cosine_score"]
             if as_bool(args.bookq_normalize_bm25):
                 df["bm25_norm"] = round(df["bm25_norm"] / len(title_split),4)
                 show_cols.append("bm25_norm")
@@ -521,14 +508,14 @@ def main():
                 show_cols.append("type_sim")
             print(df[show_cols].head(args.topk))
 
-            # 累積彙整表列（rank 化）
+            # Accumulate and consolidate results table (rank normalization applied).
             for rank, (_, row) in enumerate(df.iterrows(), start=1):
                 rec = {
                     "source_title": titles,
                     "bookq_mode_bm25": args.bookq_mode_bm25,
                     "bookq_mode_cosine": args.bookq_mode_cosine,
                     "rank": rank,
-                    "書名": row["書名"],
+                    "title": row["title"],
                     "分類": row["分類"],
                     "score": row["score"],
                     "source_hits": row.get("source_hits", ""),
@@ -554,23 +541,23 @@ def main():
                 "results": df.to_dict(orient="records"),
             })
 
-    # 7) 存結果 + meta
+    # 7) save result + meta
     out_path = Path(out_dir) / Path(args.out).name
     with open(out_path, "w", encoding="utf-8") as f:
         for row in out_rows:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     print(f"\n✓ 結果已存 {out_path}")
 
-    # 7.1 另外輸出兩張「一次看全部」的表
+    # 7.1 Additionally output two "all-in-one" summary tables
     terms_csv_path = out_path.with_name(out_path.stem + "_terms.csv")
     if terms_csv_rows:
         pd.DataFrame(terms_csv_rows).to_csv(terms_csv_path, index=False)
-        print(f"✓ 詞找書彙整：{terms_csv_path}")
+        print(f"Term-to-Bookss Consolidation: {terms_csv_path}")
 
     books_csv_path = out_path.with_name(out_path.stem + "_books.csv")
     if books_csv_rows:
         pd.DataFrame(books_csv_rows).to_csv(books_csv_path, index=False)
-        print(f"✓ 書找書彙整：{books_csv_path}")
+        print(f"Books-to-Books Consolidation: {books_csv_path}")
 
     end_time = time.time()
     end_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -592,7 +579,7 @@ def main():
     meta_path = out_path.with_suffix(".meta.json")
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
-    print(f"✓ Meta info 已存 {meta_path} (耗時 {elapsed} 秒)")
+    print(f"Meta info saved to {meta_path} (Elapsed time: {elapsed} seconds)")
 
 if __name__ == "__main__":
     main()
