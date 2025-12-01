@@ -8,35 +8,35 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from bookrec.core import VectorStore, SearchService
 
 def ask(prompt, default=None, cast=str):
-    s = input(f"{prompt}" + (f"（預設：{default}）" if default is not None else "") + "：").strip()
+    s = input(f"{prompt}" + (f"（Default：{default}）" if default is not None else "") + "：").strip()
     if not s and default is not None:
         return default
     return cast(s)
 
 def main():
-    print("\n=== book → book（輸入書名找主題詞）===\n")
+    print("\n=== book → keywords(Input Title, Find Keywords) ===\n")
     try:
         store = VectorStore().load()
     except Exception as e:
-        print(f"⚠️ 無法載入向量庫：{e}\n請先執行：python app/build_index.py 建立索引。")
+        print(f"Failed to load vector store: {e}\nPlease run: python app/build_index.py to build the index first.")
         return
     svc = SearchService(store)
 
-    title = ask("請輸入來源書名（只可輸入一本）")
-    k   = ask("要顯示幾個主題詞？", 10, int)
+    title = ask("Enter the source book title (only one title allowed)")
+    k   = ask("How many keywords to display?", 10, int)
 
     result_list = svc.book_to_keywords(
         title,
         k=k,
     )
 
-    print("\n查詢結果：\n")
-    print(f"書名：{title}\n")
+    print("\nSearch Results:\n")
+    print(f"Source Title: {title}\n")
     if len(result_list) != 0:
         for i, tag in enumerate(result_list, start=1):
             print(f"  {i}. {tag}")
     else:
-        print("（沒有結果）")
+        print("(No results found)")
 
 if __name__ == "__main__":
     main()
