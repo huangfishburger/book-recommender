@@ -9,7 +9,7 @@ from bookrec.core import VectorStore, SearchService
 from bookrec.embeddings import EmbeddingClient
 
 def ask(prompt, default=None, cast=str):
-    s = input(f"{prompt}" + (f"（預設：{default}）" if default is not None else "") + "：").strip()
+    s = input(f"{prompt}" + (f"（Default：{default}）" if default is not None else "") + "：").strip()
     if not s and default is not None:
         return default
     if cast is bool:
@@ -18,11 +18,11 @@ def ask(prompt, default=None, cast=str):
 
 def ask_mode():
     """
-    回傳 None 表示使用預設（soft_and）。
-    支援別名：
+    Returns None to use the default (soft_and).
+    Supports aliases:
       and -> min,  or -> sum,  soft -> soft_and,  avg -> avg
     """
-    s = input("模式（Enter 預設 soft_and；可選 min/sum/soft_and/avg；別名 and/or/soft/avg）：").strip().lower()
+    s = input("Mode (Enter for default soft_and; options: min/sum/soft_and/avg; aliases: and/or/soft/avg): ").strip().lower()
     if not s:
         return None
     alias = {
@@ -34,22 +34,22 @@ def ask_mode():
     return alias.get(s, s)
 
 def main():
-    print("\n=== term → book（輸入關鍵詞找書）===\n")
+    print("\n=== Term → Book (Input Keywords, Find Books) ===\n")
     try:
         store = VectorStore().load()
     except Exception as e:
-        print(f"⚠️ 無法載入向量庫：{e}\n請先執行：python app/build_index.py 建立索引。")
+        print(f"Failed to load vector store: {e}\nPlease run: python app/build_index.py to build the index first.")
         return
 
     svc = SearchService(store, EmbeddingClient())
 
-    q        = ask("請輸入查詢關鍵詞（單一詞，或用逗號分隔多詞，例如：奇幻, 龍）")
-    topk     = ask("要顯示前幾本？", 10, int)
-    tagk     = ask("擴展相似標籤先取幾個（tag_topk）", 20, int)
-    sim_th   = ask("相似度門檻（0~1）", 0.55, float)
-    use_idf  = ask("使用 IDF 權重？（Y/n）", False, bool)
-    mode     = ask_mode()  # None 代表預設 soft_and
-    bonus    = ask("同書多詞命中加分（cooccur_bonus，soft_and 用）", 0.2, float)
+    q      = ask("Enter query keywords (single term, or multiple terms separated by comma, e.g., Fantasy, Dragon)")
+    topk   = ask("How many top books to display?", 10, int)
+    tagk   = ask("How many similar tags to retrieve for expansion (tag_topk)", 20, int)
+    sim_th = ask("Similarity threshold (0~1)", 0.55, float)
+    use_idf = ask("Use IDF weighting? (Y/n)", False, bool)
+    mode   = ask_mode()  # None -> defaults to soft_and
+    bonus  = ask("Co-occurrence bonus for multiple term hits on the same book (cooccur_bonus, used for soft_and)", 0.2, float)
 
     df = svc.terms_to_books(
         q,
@@ -57,12 +57,12 @@ def main():
         sim_th=sim_th,
         topk=topk,
         use_idf=use_idf,
-        mode=mode,              # None -> 預設 soft_and
+        mode=mode,              # None -> default soft_and
         cooccur_bonus=bonus
     )
 
-    print("\n查詢結果：\n")
-    print(df.to_string(index=False) if not df.empty else "（沒有結果）")
+    print("\nSearch Results:\n")
+    print(df.to_string(index=False) if not df.empty else "(No results found)")
 
 if __name__ == "__main__":
     main()

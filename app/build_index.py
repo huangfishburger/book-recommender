@@ -7,7 +7,7 @@ from bookrec.core import VectorStore
 from bookrec.embeddings import EmbeddingClient
 
 def ask(prompt, default=None, cast=str):
-    s = input(f"{prompt}" + (f"（預設：{default}）" if default is not None else "") + "：").strip()
+    s = input(f"{prompt}" + (f"（Default：{default}）" if default is not None else "") + "：").strip()
     if not s and default is not None:
         return default
     if cast is bool:
@@ -15,15 +15,15 @@ def ask(prompt, default=None, cast=str):
     return cast(s)
 
 def main():
-    print("\n=== 建立/更新向量庫（離線）===\n")
-    excel  = ask("Excel 路徑", "data/process/十類書名_標籤.xlsx", str)
-    model  = ask("Embedding 模型", "text-embedding-3-small", str)
-    force  = ask("要不要重建所有標籤向量？（Y/n）", True, bool)
+    print("\n=== Build/Update Vector Store (Offline) ===\n")
+    excel  = ask("Excel path", "data/process/十類書名_標籤.xlsx", str)
+    model  = ask("Embedding model", "text-embedding-3-small", str)
+    force  = ask("Rebuild all tag vectors? (Y/n)", True, bool)
 
     store = VectorStore(excel_path=excel)
     emb   = EmbeddingClient(model=model)
     store.build(rebuild=force, embedder=emb)
-    print("✅ 向量庫建立完成。")
+    print("Vector store built successfully.")
 
 if __name__ == "__main__":
     main()
