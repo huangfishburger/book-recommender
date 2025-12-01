@@ -12,25 +12,25 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 load_dotenv()
 client = OpenAI()
 
-# 預設的 system prompt 與 user prompt 模板（可被 script 覆寫）
-SYSTEM_PROMPT_DEFAULT = "你的主要工作是根據每本書的內容，提供對應的主題詞。"
+# Default system prompt and user prompt template (can be overridden by script arguments)
+SYSTEM_PROMPT_DEFAULT = "Your primary job is to provide corresponding subject tags based on the content of each book."
 
 PROMPT_TEMPLATE_DEFAULT = """
-請使用 **繁體中文**，根據書籍探討的核心內容或情節，找出書中 15 到 20 個詳細且完整的標籤（每個標籤須為 6 個字以內的名詞），
-標籤粒度適中，避免過於寬泛（如「歷史」、「文學」）或過於細碎（如「清代乾隆年間文人書信體例」）。
+Using **Traditional Chinese**, based on the core content or plot explored in the book, find 15 to 20 detailed and complete tags (each tag must be a noun phrase within 6 characters).
+The tag granularity should be moderate, avoiding labels that are too broad (e.g., "History," "Literature") or too specific (e.g., "Qing Dynasty Qianlong period scholar correspondence style").
 
-以下為輸入與對應範例：
-書名：《被討厭的勇氣》
-作者：岸見一郎
-內容簡介：透過一位青年與哲人對話的形式，深入淺出地介紹阿德勒心理學的核心思想…
+Below is the input and a corresponding example:
+Title: "The Courage to Be Disliked"
+Author: Ichiro Kishimi
+Summary: Through a dialogue between a youth and a philosopher, the core ideas of Adlerian psychology are introduced in a simple and profound way...
 
-範例標籤：
-#阿德勒心理學 #貢獻他人 #自我成長 #人際關係 #課題分離 #對話形式 #信念轉換 #自我接納 #勇氣挑戰 #當下行動 #否定承擔 #責任選擇 #幸福源泉 #自卑與超越 #社會關係 #歸屬感
+Example Tags:
+#AdlerianPsychology #ContributingToOthers #SelfGrowth #InterpersonalRelationships #TaskSeparation #DialogueFormat #BeliefTransformation #SelfAcceptance #CourageToChallenge #ActionInThePresent #DenialOfBurden #ResponsibilityChoice #SourceOfHappiness #InferiorityAndTranscendence #SocialRelations #SenseOfBelonging
 
-請依上述格式，根據以下書籍資訊，**以繁體中文**生成 **15 到 20** 個標籤：
-書名：{title}
-作者：{author}
-內容簡介：{summary}
+Following the above format, please generate **15 to 20** tags **in Traditional Chinese** based on the following book information:
+Title: {title}
+Author: {author}
+Summary: {summary}
 """.strip()
 
 
@@ -51,7 +51,7 @@ def process_with_ai(
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"❌ AI處理時出現錯誤：{e}"
+        return f"Error occurred during AI processing: {e}"
 
 
 def generate_topic_labels(
@@ -74,7 +74,7 @@ def generate_topic_labels(
 
 def batch_generate_labels(
     books_csv: str = "data/process/processed_books.csv",
-    output_file: str = "data/process/十類書名_標籤.xlsx",
+    output_file: str = "data/process/十類title_標籤.xlsx",
     start: int = 0,
     end: int = -1,
     save_every: int = 500,
@@ -84,25 +84,25 @@ def batch_generate_labels(
     temperature: float = 0.3,
 ):
     """
-    從 processed_books.csv 批次產生標籤，存成 Excel。
-    可設定起訖 index、存檔頻率、模型，以及自定 prompt/system_prompt/temperature。
+    Batch generate tags from processed_books.csv and save as an Excel file.
+    Settable parameters include start/end index, saving frequency, model, and custom prompt/system_prompt/temperature.
     """
     books = pd.read_csv(books_csv)
-    books.drop_duplicates(subset=["書名"], inplace=True)
+    books.drop_duplicates(subset=["title"], inplace=True)
     books.reset_index(drop=True, inplace=True)
 
     if end == -1:
         end = len(books)
 
-    results = pd.DataFrame(columns=["書名", "分類", "標籤"])
+    results = pd.DataFrame(columns=["title", "type", "tags"])
 
     for i in range(start, end):
-        title = str(books.loc[i, "書名"])
-        author = str(books.loc[i, "作者"])
-        summary = str(books.loc[i, "書籍簡介"])
-        type_ = str(books.loc[i, "書籍分類第二層"])
+        title = str(books.loc[i, "title"])
+        author = str(books.loc[i, "author"])
+        summary = str(books.loc[i, "summary"])
+        type_ = str(books.loc[i, "type"])
 
-        # 生成標籤（用可覆寫的模板/參數）
+        # Generate tags (using overrideable template/parameters)
         labels = generate_topic_labels(
             title=title,
             author=author,
@@ -113,26 +113,25 @@ def batch_generate_labels(
             temperature=temperature,
         )
 
-        # 格式化
+        # format
         labels = re.sub(r"\s+", " ", " ".join(labels)).strip()
         labels_list = [label.strip() for label in labels.split("#") if label.strip()]
 
-        # 加入 DataFrame
-        results.loc[i, "書名"] = title
-        results.loc[i, "分類"] = type_
-        results.loc[i, "標籤"] = ", ".join(labels_list)
+        results.loc[i, "title"] = title
+        results.loc[i, "type"] = type_
+        results.loc[i, "tags"] = ", ".join(labels_list)
 
-        # 週期存檔
+        # save
         if (i + 1) % save_every == 0 or (i + 1) == end:
-            print(f"已處理 {i + 1} 筆書籍，暫存結果...")
+            print(f"Processed {i + 1} book records, saving temporary results...")
             if os.path.exists(output_file):
                 old = pd.read_excel(output_file)
                 combined = pd.concat([old, results], ignore_index=True)
             else:
                 combined = results
             combined.to_excel(output_file, index=False)
-            results = pd.DataFrame(columns=["書名", "分類", "標籤"])
-            print("暫存完成。")
+            results = pd.DataFrame(columns=["title", "type", "tags"])
+            print("Successfully save")
 
 if __name__ == "__main__":
     batch_generate_labels(start=1100)

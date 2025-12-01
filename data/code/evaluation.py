@@ -7,8 +7,8 @@ Evaluate tag-to-summary relevance with BM25 (two modes).
 
 Inputs
 ------
-1) Excel with columns [書名, 分類, 標籤]
-2) CSV with columns [書名, 作者, 書籍簡介, 書籍分類第二層]
+1) Excel with columns [title, type, tags]
+2) CSV with columns [title, author, summary, type]
 
 Outputs
 -------
@@ -17,7 +17,7 @@ Outputs
 
 Usage:
 python evaluation.py \
-  --excel data/process/十類書名_標籤.xlsx \
+  --excel data/process/十類title_tags.xlsx \
   --books-csv data/process/processed_books.csv \
   --out-csv data/process/artifacts/bm25_eval_summary.csv \
   --out-jsonl data/process/artifacts/bm25_eval_details.jsonl \
@@ -34,8 +34,8 @@ from bookrec.embeddings import EmbeddingClient
 from scipy.spatial.distance import cosine as cosine_distance
 
 # ─────────────────────────────────────────────────────────
-# 路徑（預設：repo/data/process 與 artifacts）
-# 如需覆寫，把 BOOKREC_ROOT 設成你的 repo 根目錄
+# Paths (Default: repo/data/process and artifacts)
+# To override, set BOOKREC_ROOT to your repository's root directory.
 # ─────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parents[2]
 ART  = BASE_DIR / "data" / "process"
@@ -113,7 +113,7 @@ class BM25:
 # -------- Evaluation --------
 
 def load_inputs(excel: str, books_csv: str):
-    return pd.read_excel(excel), pd.read_csv(books_csv).drop_duplicates(subset=["書名"]).reset_index(drop=True)
+    return pd.read_excel(excel), pd.read_csv(books_csv).drop_duplicates(subset=["title"]).reset_index(drop=True)
 
 def parse_tags(cell: str) -> List[str]:
     if not isinstance(cell, str) or not cell.strip():
@@ -159,8 +159,8 @@ def evaluate_bm25(
     tag_df, books_df = load_inputs(excel, books_csv)
     docs = []; title_to_docid = {}
     for _,row in books_df.iterrows():
-        title = str(row.get("書名","")).strip()
-        summary = str(row.get("書籍簡介","")).strip()
+        title = str(row.get("title","")).strip()
+        summary = str(row.get("summary","")).strip()
         tokens = tokenize(summary, tokenizer, ngram)
         title_to_docid[title] = len(docs)
         docs.append(tokens)
@@ -170,8 +170,8 @@ def evaluate_bm25(
     summary_rows=[]
     with open(details_path,"w",encoding="utf-8") as fout:
         for _,row in tag_df.iterrows():
-            title = str(row.get("書名","")).strip()
-            tags=parse_tags(row.get("標籤",""))
+            title = str(row.get("title","")).strip()
+            tags=parse_tags(row.get("tags",""))
             doc_id = title_to_docid.get(title)
             if doc_id is None: continue
 
@@ -203,7 +203,7 @@ def evaluate_bm25(
                 rec.update({"tag_merged_score":round(tm_score,6),"tag_merged_len":tm_len,"tag_merged_norm":round(tm_norm,6)})
             fout.write(json.dumps(rec,ensure_ascii=False)+"\n")
 
-            row_out={"書名":title,"標籤數":len(tags)}
+            row_out={"title":title,"tags count":len(tags)}
             if mode in ("tag-each","both"):
                 row_out.update({"TE_avg":round(te_avg,6),"TE_max":round(te_max,6),"TE_max_tag":te_max_tag,"TE_coverage":round(te_cov,6),f"TE_top{topk_mean}_mean":round(te_topk_mean,6)})
             if mode in ("tag-merged","both"):
@@ -212,8 +212,8 @@ def evaluate_bm25(
 
     Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(summary_rows).to_csv(out_csv,index=False)
-    print(f"✓ Wrote summary CSV: {out_csv}")
-    print(f"✓ Wrote details JSONL: {details_path}")
+    print(f"Wrote summary CSV: {out_csv}")
+    print(f"Wrote details JSONL: {details_path}")
 
 
 
@@ -228,9 +228,9 @@ def evaluate_cosine(
     title_to_docid = {}
 
     for _, row in books_df.iterrows():
-        title = str(row.get("書名","")).strip()
-        summary = str(row.get("書籍簡介","")).strip()
-        sentences = summary.split("。")  # 中文簡單用句號切句
+        title = str(row.get("title","")).strip()
+        summary = str(row.get("summary","")).strip()
+        sentences = summary.split(".")  
         sentences = [clean_text(s) for s in sentences]
         sentences = [s for s in sentences if s]
         start_idx = len(docs)
@@ -252,8 +252,8 @@ def evaluate_cosine(
     summary_rows=[]
     with open(details_path,"w",encoding="utf-8") as fout:
         for _, row in tag_df.iterrows():
-            title = str(row.get("書名","")).strip()
-            tags = str(row.get("標籤","")).split(",")  # 假設逗號分隔
+            title = str(row.get("title","")).strip()
+            tags = str(row.get("tags","")).split(",") 
             book_emb = title_to_embedding.get(title)
             if book_emb is None or not tags:
                 continue
@@ -295,7 +295,7 @@ def evaluate_cosine(
                 rec.update({"tag_merged_score": round(tm_score,6), "tag_merged_len": tm_len})
             fout.write(json.dumps(rec, ensure_ascii=False)+"\n")
 
-            row_out={"書名": title, "標籤數": len(tags)}
+            row_out={"title": title, "tags數": len(tags)}
             if mode in ("tag-each","both"):
                 row_out.update({
                     "TE_avg": round(te_avg,6),
@@ -309,6 +309,6 @@ def evaluate_cosine(
 
     Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(summary_rows).to_csv(out_csv,index=False)
-    print(f"✓ Wrote summary CSV: {out_csv}")
-    print(f"✓ Wrote details JSONL: {details_path}")
+    print(f"Wrote summary CSV: {out_csv}")
+    print(f"Wrote details JSONL: {details_path}")
 

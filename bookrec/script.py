@@ -276,7 +276,7 @@ def main():
     title_to_summary = {}
     for _, r in books_df.iterrows():
         title = str(r.get("title", "")).strip()
-        summary = str(r.get("introduction", "")).strip()
+        summary = str(r.get("summary", "")).strip()
         tokens = tokenize(summary, mode=args.tokenizer, ngram=args.ngram)
         title_to_docid[title] = len(docs)
         title_to_summary[title] = summary
@@ -394,7 +394,7 @@ def main():
                                                 ngram=args.ngram, merged_tf=args.bookq_merged_tf_bm25)
                 else:  # summary
                     src_row = books_df[books_df["title"] == title]
-                    src_summary = str(src_row.iloc[0]["introduction"]) if not src_row.empty else ""
+                    src_summary = str(src_row.iloc[0]["summary"]) if not src_row.empty else ""
                     q_tokens = tokenize(src_summary, mode=args.tokenizer, ngram=args.ngram)
 
                 # Cosine Similarity Query: merged tags OR summary
@@ -402,7 +402,7 @@ def main():
                     tags = title_to_tags.get(title, [])
                 else:  # summary
                     src_row = books_df[books_df["title"] == title]
-                    src_summary = str(src_row.iloc[0]["introduction"]) if not src_row.empty else ""
+                    src_summary = str(src_row.iloc[0]["summary"]) if not src_row.empty else ""
                 
                 # diagnostic：title
                 if as_bool(args.bookq_title_sim):
