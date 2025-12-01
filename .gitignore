@@ -1,0 +1,26 @@
+# --- Python 基本 ---
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- 虛擬環境 ---
+.venv/
+venv/
+env/
+myvenv/
+
+# --- 系統/IDE ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# # --- 機密/環境變數 ---
+# .env
+# *.env
+# .env.*
+
+# --- 向量庫產物（build_index 生成）---
+data/process/artifacts/

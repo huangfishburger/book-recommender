@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虛擬環境
+venv/
+.env/
+.venv/
+
+# Git 與開發環境
+.git/
+.vscode/
+.idea/
+
+# 系統暫存
+.DS_Store
+Thumbs.db
+
+# # --- 機密/環境變數 ---
+# .env
+# *.env
+# .env.*
+
+# --- 向量庫產物（build_index 生成）---
+data/process/artifacts/
