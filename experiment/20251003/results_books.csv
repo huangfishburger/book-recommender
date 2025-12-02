@@ -1,0 +1,3 @@
+source_title,bookq_mode_bm25,bookq_mode_cosine,rank,title,category,score,source_hits,match_count,bm25_score,cosine_score,bm25_norm,cosine_norm,title_sim,type_sim
+一億元的分手費,tags,tags,1,我們為何不愛了？：走入愛情諮商室，克服脆弱、孤獨與背叛，找回彼此最動人的模樣,心理學,5.506,1,8,30.7896,0.5509,0.7895,0.0141,0.3321,0.3294
+

@@ -1,0 +1,2 @@
+query,rank,title,category,score,bm25_score,cosine_score,exact_hits,similar_hits
+sympathy,1,與你相鬱的日子：給患者與陪伴者的憂鬱症基礎指南,心理學,0.601,0.0,0.30313,0,1

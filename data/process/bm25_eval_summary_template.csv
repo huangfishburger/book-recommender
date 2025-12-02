@@ -1,0 +1,2 @@
+title,tags_count,TE_avg,TE_max,TE_max_tag,TE_coverage,TE_top5_mean,TM_score,TM_len,TM_norm,TM_tf,TM_norm_on
+一億元的分手費,20,4.222827,14.227352,金錢祕密,0.6,10.139654,75.532108,39,1.936721,binary,True

@@ -295,7 +295,7 @@ def evaluate_cosine(
                 rec.update({"tag_merged_score": round(tm_score,6), "tag_merged_len": tm_len})
             fout.write(json.dumps(rec, ensure_ascii=False)+"\n")
 
-            row_out={"title": title, "tags數": len(tags)}
+            row_out={"title": title, "tags_count": len(tags)}
             if mode in ("tag-each","both"):
                 row_out.update({
                     "TE_avg": round(te_avg,6),
