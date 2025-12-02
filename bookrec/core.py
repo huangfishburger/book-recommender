@@ -300,7 +300,7 @@ class SearchService:
         per_src_books:  dict[str, set[int]]         = {}
 
         # Used to exclude the source book itself
-        src_indices = set(df.index[df["書名"].isin(src_titles)].tolist())
+        src_indices = set(df.index[df["title"].isin(src_titles)].tolist())
 
         for title in src_titles:
             src_tags = self.store.tags_for_book(title)
