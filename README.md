@@ -1,5 +1,11 @@
 # Book_Recommender
 
+## 0. Introduction
+
+This project is a hybrid recommendation and retrieval system that combines BM25, cosine similarity, and LLM-generated tags to produce accurate terms-to-books and books-to-books recommendations and retrieval results. It also includes comprehensive tag-quality evaluation tools using BM25 and cosine similarity to help debug, analyze, and improve book recommendations.
+
+**(Note on Authorship): This repository is a derivative copy of the original team project. The code represents the combined efforts of the development team listed below. My primary contributions focused on LLM tag generation, recommendation algorithm design, and cosine similarity–based relevance scoring.**
+
 ## 1. Clone the repository
 
 ```bash
@@ -9,7 +15,7 @@ cd Book_Recommender
 
 ## 2. Environment setup
 
-### 2.1.1 法一：使用虛擬環境
+### Method 1: Using a Virtual Environment
 ```bash
 # Create a virtual environment
 python -m venv venv
@@ -25,7 +31,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2.1.1 法二：使用docker
+### Method 2: Using Docker
 ```bash
 # download docker desktop
 https://www.docker.com/
@@ -39,55 +45,58 @@ docker run -it --rm book_recommender
 
 ## 3. Running the Project
 
-### 3.1.1 法一：在本機重新建立 / 更新向量庫
+### 3.1.1 Method 1: Rebuild / Update the Vector Index Locally
 ```bash
 python -m app.build_index
 ```
-* 可更改 Excel 檔路徑（預設：data/process/十類書名_標籤.xlsx）
-### 3.1.2 法二：下載已完成嵌入的向量庫資料夾
+* The path to the Excel file can be modified (default: data/process/title_tags.xlsx).
+### 3.1.2 Method 2: Download the Pre-built Vector Index Folder
 ```bash
 python data/code/downloadfiles.py
 ```
 
-### 3.2 以書搜尋相關的書
+### 3.2 Search for Related Books by Book Title
 ```bash
 python -m app.books_to_books
 ```
-* 多本輸入用分號 ; 或全形 ； 分隔
-* 合併模式：soft_and（預設）、sum、min、avg
+* Separate multiple input titles with a semicolon (;) or a full-width semicolon (；).
+* Merge Modes: soft_and (default), sum, min, avg.
 
-### 3.3 以關鍵詞搜尋相關的書 
+### 3.3 Search for Related Books by Keywords
 ```bash
 python -m app.terms_to_books
 ```
-* 多詞輸入用逗號 , 或全形 ， 分隔
-* 合併模式：soft_and（預設）、sum、min、avg
-* 主題詞表中包含與否的關鍵詞皆可搜尋（僅程式搜尋邏輯不同）
-* exact_hits：有多少個查詢詞本身（term）被包含在該書的 tags 裡
-* similar_hits：所有相似標籤（排除與 term 完全相同的）一共被包含了多少次
+* Separate multiple input terms with a comma (,) or a full-width comma (，).
+* Merge Modes: soft_and (default), sum, min, avg.
+* Both keywords included in the subject term list and those not included can be searched (only the program's search logic differs).
+* exact_hits: The number of query terms themselves that are contained within the book's tags.
+* similar_hits: The total count of all similar tags (excluding those exactly matching the term) that are contained within the book's tags.
   
-### 3.4 以關鍵詞搜尋相似主題詞
+### 3.4 Search for Similar Subject Terms by Keyword
 ```bash
 python -m app.term_to_keywords
 ```
-* 主題詞表中包含與否的關鍵詞皆可搜尋（僅程式搜尋邏輯不同）
+* Both keywords included in the subject term list and those not included can be searched (only the program's search logic differs).
 
-### 3.5 以書搜尋相關主題詞
+### 3.5 Search for Related Subject Terms by Book Title
 ```bash
 python -m app.book_to_keywords
 ```
-* 所有主題詞表中包含的書皆可搜尋
-* source_hits：統計有多少本不同來源書(搜尋的書）對該書至少命中一個（書籍本身的或擴展的相似）標籤
-* match_count：彙總所有來源書的相似標籤命中次數
+* All books included in the subject term list can be searched.
+* source_hits: Counts how many different source books (the queried books) hit at least one tag (either the book's own tag or an expanded similar tag) for a given book.
+* match_count: Aggregates the total count of similar tag hits from all source books.
   
-## 附錄：合併模式比較（term/books → book）
+## Appendix: Comparison of Merge Modes (terms/books → books)
 
-| 模式       | 計分公式（簡化）                                     | 命中要求                  | 特性與用途 |
-|------------|------------------------------------------------------|---------------------------|------------|
-| `soft_and` | `sum(scores) + cooccur_bonus * max(0, k - 1)`        | 不需全中（偏好同時命中）  | **預設**。在召回與精確間取平衡；同時被多詞/多本命中的結果更靠前 |
-| `sum`      | `sum(scores)`                                        | 不需全中（寬鬆 OR）       | 召回最大，適合廣泛探索 |
-| `min`      | `min(scores)`                                        | **越接近全中越好**        | 接近 AND；缺任一詞/來源貢獻低則整體分數被拉低（可做嚴格過濾） |
-| `avg`      | `sum(scores) / #queries`                             | 不需全中                  | 把不同查詢的分數拉到同一尺度，方便跨查詢比較 |
+| Mode       | Scoring Formula (Simplified)  | Hit Requirement  | Characteristics and Use Case |
+|------------|-------------------------------|------------------|-----------------------------|
+| `soft_and` | `sum(scores) + cooccur_bonus * max(0, k - 1)`        | Not all required (favors co-occurrence)  | **Default.** Balances Recall and Precision. Adds a bonus to the sum of scores if a book is hit by multiple queries ($k > 1$), strongly prioritizing results that satisfy multiple conditions simultaneously. |
+| `sum`      | `sum(scores)`                                        | Not all required (loose OR)   |Suitable for broad exploration and maximizing Recall. The final score is high if the book is highly ranked by any single query.|
+| `min`      | `min(scores)`                                        | **Closer to all-required is better**        | Used for strict filtering. The final score is determined by the lowest score received from any single query. Requires the result to have reasonable relevance to all input queries. |
+| `avg`      | `sum(scores) / #queries`                             | Not all required  | Used for fair comparison across different numbers of queries (e.g., comparing results from 2 terms vs. 5 terms). Normalizes the scores to a common scale. |
 
-* 註：`k` 為該書被命中的查詢數（多詞或多本來源）；`cooccur_bonus` 只在 `soft_and` 生效（預設 `0.2`）。
-* `min` 若要做「嚴格 AND」，可在程式中過濾 `k < 查詢數` 的結果。
+* Note: `k` is the number of queries (multiple terms or multiple source books) that hit the book; `cooccur_bonus` only applies to soft_and (default `0.2`).
+* For a "Strict AND" in `min` mode, you can filter results where `k < number of queries` in the code.
+
+## Author
+This project was developed by Yu-Ting Huang and Chien-Yi Lin under the supervision of Professor Yu-Chang Chen.

@@ -1,48 +1,55 @@
 # BookRec Runner & Evaluator
 
-這個專案提供兩條主線功能：
+This project provides two main functional threads:
 
-1. **標籤生成**：用 GPT 依書名/作者/簡介產生 15–20 個繁中標籤，輸出到 Excel。
-2. **檢索與評估**：
+1. **Tag Generation**: Uses GPT to generate 15–20 Traditional Chinese tags based on book title/author/summary, outputting the results to an Excel file.
 
-   * **詞找書**（terms → books）：用標籤向量庫檢索，並以 **BM25** 或 **Cosine Similarity** 對每個 term 與命中書的**簡介**逐一計分，最後做聚合（`avg/sum/min`）。
-   * **書找書**（books → books）：以來源書（**tags** 或 **summary**）找相似書，並對「來源查詢」與候選書**簡介**計算 BM25、Cosine Similarity（可選長度正規化），也可以對「來源查詢」與候選書**書名**、**分類**計算 Cosine Similarity。
-   * **標籤品質評估**：以 BM25、Cosine Similarity 評估「每本書的標籤 vs 自身書籍簡介」的相關度（`evaluation.py`）。
+2. **Retrieval and Evaluation**:
+
+**Terms to Books**: Uses the tag vector store for retrieval. Scores each term against the candidate book's **summary** using **BM25** or **Cosine Similarity**, then aggregates the scores (avg/sum/min).
+
+**Books to Books**: Finds similar books based on the source book's (**tags** or **summary**). Calculates BM25 and Cosine Similarity (with optional length normalization) between the "source query" and the candidate book's **summary**. Also calculates Cosine Similarity between the "source query" and the candidate book's **title** and **category**.
+
+**Tag Quality Evaluation**: Assesses the relevance of "each book's tags vs. its own book summary" using BM25 and Cosine Similarity (`evaluation.py`).
+
+All executions are controlled via a single script file: bookrec/script.py. The script outputs the results, two summary tables (for terms/books), and execution parameters + runtime (meta.json), facilitating reproducibility and comparison.
 
 所有執行都可用單檔 **`bookrec/script.py`** 控制；會輸出**結果**、**兩張彙整表（terms/books）**與**執行參數＋耗時（meta.json）**，方便重現與比較。
 
+All executions are controlled via a single script file: **`bookrec/script.py`**. The script outputs the **results**, **two summary tables (for terms/books)**, and **execution parameters + runtime (meta.json)**, facilitating reproducibility and comparison.
+
 ---
 
-## 0. 需求與安裝
+## 0. Requirements and Installation
 
 **Python**：3.9+
 
 **套件**：
 
-* 必備：`pandas`, `numpy`, `faiss-cpu`, `openpyxl`, `python-dotenv`, `tqdm`
-* 選用：`jieba`（中文切詞更準）、`rich`（想要更漂亮的 CLI 輸出可自加）
+* Required: `pandas`, `numpy`, `faiss-cpu`, `openpyxl`, `python-dotenv`, `tqdm`
+* Optional:`jieba`(for better Chinese tokenization),`rich`(for nicer CLI output)
 
 ```bash
 pip install -U pandas numpy faiss-cpu openpyxl python-dotenv tqdm jieba
 ```
 
-**OpenAI 金鑰（若要生成標籤）**：
+**OpenAI API Key (If tag generation is needed)**：
 
-* 設定環境變數 `OPENAI_API_KEY`，或在專案根目錄放 `.env`：
+* Set the environment variable `OPENAI_API_KEY`, or place a `.env` file in the project root:
 
   ```env
   OPENAI_API_KEY=sk-************************
   ```
 
-**預設路徑**：
+**Default Paths**：
 
 ```
-data/process/processed_books.csv      # 原始書目（書名/作者/書籍簡介/書籍分類第二層）
-data/process/十類書名_標籤.xlsx         # 標籤輸出（書名/分類/標籤）
-data/process/                         # 向量、快取與評估輸出
+data/process/processed_books.csv   # Raw book catalog (Title/Author/Summary/Second-level Category)
+data/process/title_tags.xlsx     # Tag output (Title/Category/Tags)
+data/process/                      # Vector index, cache, and evaluation output
 ```
 
-> **建議以模組方式執行**（確保 `bookrec` 能被找到）：
+> **Recommendation**: Run as a module (to ensure bookrec is findable):
 >
 > ```bash
 > python -m bookrec.script ...
@@ -50,108 +57,108 @@ data/process/                         # 向量、快取與評估輸出
 
 ---
 
-## 1. 檔案一覽
+## 1. File Overview
 
-* `data/code/add_tags.py`：標籤生成（`batch_generate_labels()`）。
-* `bookrec/embeddings.py`：`EmbeddingClient`（OpenAI Embeddings）。
-* `bookrec/core.py`：
+* `data/code/add_tags.py`: Tag generation (`batch_generate_labels()`).
+* `bookrec/embeddings.py`: `EmbeddingClient` (OpenAI Embeddings).
+* `bookrec/core.py`:
 
-  * `VectorStore`：讀 Excel 標籤，建/載 FAISS、倒排索引與 IDF。
-  * `SearchService`：
+  * `VectorStore`: Reads Excel tags, builds/loads FAISS, inverted index, and IDF.
+  * `SearchService`:
 
-    * `terms_to_books(query_input, ...)`（**詞找書**）
-    * `books_to_books(titles_input, ...)`（**書找書**）
-* `data/code/evaluation.py`：BM25、cosine similarity 工具與標籤評估（`BM25`, `BM25Params`, `tokenize`, `evaluate`）。
-* `bookrec/script.py`：一檔整合（可選重生標籤 → 可選標籤評估 → 造/載向量庫 → 詞找書/書找書 + BM25 + cosine similarity → 輸出結果與 meta & 彙整表）。
+    * `terms_to_books(query_input, ...)` (**Terms to Books**)
+    * `books_to_books(titles_input, ...)` (**Books to Books**)
+* `data/code/evaluation.py`: BM25, cosine similarity tools, and tag evaluation (`BM25`, `BM25Params`, `tokenize`, `evaluate`).
+* `bookrec/script.py`: Single file integration (optional tag regeneration → optional tag evaluation → build/load vector store → terms-to-books / books-to-books + BM25 + cosine similarity → outputs results, meta, & summary tables).
 
 ---
 
-## 2. 輸入格式
+## 2. Input Format
 
 ### `processed_books.csv`
 
-必備欄位：
+Required fields:
 
-* `書名`（str，唯一鍵）
-* `作者`（str）
-* `書籍簡介`（str）
-* `書籍分類第二層`（str）
+* `title`（str，唯一鍵）
+* `author`（str）
+* `summary`（str）
+* `category`（str）
 
-### `十類書名_標籤.xlsx`
+### `title_tags.xlsx`
 
-由 `add_tags.py` 或 `batch_generate_labels()` 產生：
+Generated by `add_tags.py` or `batch_generate_labels()`:
 
-* `書名`（str）
-* `分類`（str）
-* `標籤`（str，逗號分隔，例如 `阿德勒心理學, 課題分離, 自我成長`）
+* `title`（str）
+* `category`（str）
+* `tags`（str, comma-separated,e.g., `growth, psychology`）
 
 ---
 
-## 3. 快速開始
+## 3. Quick Start
 
-### 3.1 直接跑**詞找書**（不用重跑標籤）
+### 3.1 Run Terms to Books Directly (No Tag Regeneration)
 
 ```bash
 python -m bookrec.script \
-  --excel data/process/十類書名_標籤.xlsx \
+  --excel data/process/title_tags.xlsx \
   --books-csv data/process/processed_books.csv \
-  --terms "奇幻, 科學; 投資, 財報" \
+  --terms "magic, science" \
   --topk 10
 ```
 
-輸出：
+Output:
 
-* 終端列印每個查詢的 Top-K（向量檢索分數 + **per-term 聚合 BM25** 分數 + cosine similarity 分數）
-* 結果檔案在 experiment/當日日期 資料夾內
-* **`results.jsonl`**：每行一個 JSON（檢索結果）
-* **`results_terms.csv`**：一次看所有「詞找書」查詢的 Top-K（欄位含 `query, rank, 書名, 分類, score, bm25_score, cosine_score, exact_hits, similar_hits`）
-* **`results.meta.json`**：開始/結束時間、耗時、所有參數、彙整表路徑
+* Top-K results for each query printed to the terminal (Vector retrieval score + **per-term aggregated BM25** score + cosine similarity score).
+* Result files are in the `experiment/current_date` folder.
+* **`results.jsonl`**: One JSON object per line (retrieval results).
+* **`results_terms.csv`**: Summary of Top-K results for all "Terms to Books" queries (fields include `query, rank, title, category, score, bm25_score, cosine_score, exact_hits, similar_hits`).
+* **`results.meta.json`**: Start/end time, elapsed time, all parameters, and summary table paths.
 
-### 3.2 重生**標籤**並做**BM25 標籤評估**
+### 3.2 Regenerate Tags and Perform BM25 Tag Evaluation
 
 ```bash
 python -m bookrec.script \
-  --regen-tags true \
-  --gpt-model gpt-4o \
-  --books-csv data/process/processed_books.csv \
-  --excel data/process/十類書名_標籤.xlsx \
-  --eval-tags-bm25 true \
-  --eval-out-csv data/process/bm25_eval_summary.csv \
-  --eval-out-jsonl data/process/bm25_eval_details.jsonl
+  --regen-tags true \
+  --gpt-model gpt-4o \
+  --books-csv data/process/processed_books.csv \
+  --excel data/process/title_tags.xlsx \
+  --eval-tags-bm25 true \
+  --eval-out-csv data/process/bm25_eval_summary.csv \
+  --eval-out-jsonl data/process/bm25_eval_details.jsonl
 ```
 
-輸出：
+Output:
 
-* 產生/覆寫 `十類書名_標籤.xlsx`
-* 標籤 BM25 評估：`bm25_eval_summary.csv`（每本彙整）、`bm25_eval_details.jsonl`（每標籤細節）
-* 若同時也輸入查詢/書，會另外產生 `results.jsonl`、`results_terms.csv`/`results_books.csv` 與 `results.meta.json`
+* Generates/overwrites `title_tags.xlsx`.
+* Tag BM25 Evaluation: `bm25_eval_summary.csv` (per-book summary), `bm25_eval_details.jsonl` (per-tag details).
+* If queries/books are also provided, `results.jsonl`, `results_terms.csv`/`results_books.csv`, and `results.meta.json` will be generated additionally.
 
-### 3.3 重生**標籤**並做**Cosine Simialrity 標籤評估**
+### 3.3 Regenerate Tags and Perform Cosine Similarity Tag Evaluation
 
 ```bash
 python -m bookrec.script \
-  --regen-tags true \
-  --gpt-model gpt-4o \
-  --books-csv data/process/processed_books.csv \
-  --excel data/process/十類書名_標籤.xlsx \
-  --eval-tags-cosine true \
-  --eval-out-csv data/process/cosine_eval_summary.csv \
-  --eval-out-jsonl data/process/cosine_eval_details.jsonl
+  --regen-tags true \
+  --gpt-model gpt-4o \
+  --books-csv data/process/processed_books.csv \
+  --excel data/process/title_tags.xlsx \
+  --eval-tags-cosine true \
+  --eval-out-csv data/process/cosine_eval_summary.csv \
+  --eval-out-jsonl data/process/cosine_eval_details.jsonl
 ```
 
-輸出：
+Output:
 
-* 產生/覆寫 `十類書名_標籤.xlsx`
-* 標籤 Cosine Simialrity 評估：`cosine_eval_summary.csv`（每本彙整）、`cosine_eval_details.jsonl`（每標籤細節）
-* 若同時也輸入查詢/書，會另外產生 `results.jsonl`、`results_terms.csv`/`results_books.csv` 與 `results.meta.json`
+* Generate/overwrite `title_tags.xlsx`
+* Tag Cosine Similarity Evaluation: `cosine_eval_summary.csv` (per-book summary), `cosine_eval_details.jsonl` (per-tag details)
+* If queries/books are also provided, additional files will be generated: `results.jsonl`, `results_terms.csv` / `results_books.csv`, and `results.meta.json`
 
-### 3.4 **書找書**（bm25用來源書 **標籤** 作計算）
+### 3.4 books-to-books Recommendation (BM25 computed using source book tags)
 
 ```bash
 python -m bookrec.script \
-  --excel data/process/十類書名_標籤.xlsx \
+  --excel data/process/title_tags.xlsx \
   --books-csv data/process/processed_books.csv \
-  --books "被討厭的勇氣; 原子習慣" \
+  --books "The Courage to Be Disliked; Atomic Habits" \
   --bookq-mode-bm25 tags \
   --bookq-merged-tf-bm25 binary \
   --bookq-normalize-bm25 true \
@@ -159,139 +166,141 @@ python -m bookrec.script \
   --embedding-level-books sentence-max \
   --bookq-normalize-cosine true \
   --bookq_title_sim true \
-  --bookq_type_sim true \
+  --bookq_category_sim true \
   --topk 10
 ```
 
-輸出（除終端與 `results.jsonl` 外）：
+Output (besides terminal logs and `results.jsonl`):
 
-* 結果檔案在 experiment/當日日期 資料夾內
-* **`results_books.csv`**：一次看所有「書找書」來源書的 Top-K（欄位含 `source_title, bookq_mode_bm25, bookq_mode_cosine, rank, 書名, 分類, score, source_hits, match_count, bm25_score, cosine_score, [title_sim, type_sim, bm25_norm, cosine_norm]`）
+* Result files are stored under the `experiment/<date>` folder
+* **`results_books.csv`**: View the Top-K results for all source books in the “books-to-books” mode (columns include `source_title, bookq_mode_bm25, bookq_mode_cosin e, rank, title, category, score, source_hits, match_count, bm25_score, cosine_score, [title_sim, category_sim, bm25_norm, cosine_norm]`)
 
-### 3.5 **書找書**（bm25 用來源書 **簡介** 作計算）
+### 3.5 books-to-books Recommendation (BM25 computed using source book summary)
 
 ```bash
 python -m bookrec.script \
-  --excel data/process/十類書名_標籤.xlsx \
+  --excel data/process/title_tags.xlsx \
   --books-csv data/process/processed_books.csv \
-  --books "被討厭的勇氣" \
+  --books "Harry Potter" \
   --bookq-mode-bm25 summary \
   --bookq-mode-cosine summary \
   --embedding-level-books sentence-max \
   --bookq_title_sim true \
-  --bookq_type_sim true \
+  --bookq_category_sim true \
   --topk 10
 ```
 
-> 若沒有提供 `--books` / `--books-file` 或來源書無法命中，`results_books.csv` 不會生成；可在 `results.meta.json` 的 `books_csv` 檢查實際路徑（或是否為空字串）。
+> If `--books` / `--books-file` is not provided, or if the source books cannot be matched, `results_books.csv` will not be generated; you can check the actual path (or whether it is an empty string) under `books_csv` in `results.meta.json`.
 
 ---
 
-## 4. 參數說明（含預設）
+## 4. Parameter Description (with Defaults)
 
-### 4.1 標籤生成（可選）
+### 4.1 Tag Generation (Optional)
 
-* `--regen-tags` (`false`)：是否重跑標籤生成（呼叫 OpenAI）
-* `--gpt-model` (`gpt-4o`)：GPT 模型
+* `--regen-tags` (`false`): Whether to regenerate tags (calls OpenAI)
+* `--gpt-model` (`gpt-4o`): GPT model
 * `--books-csv` (`data/process/processed_books.csv`)
-* `--regen-range`（如 `1100:-1`）：指定索引區間
-* `--save-every` (`500`)：暫存頻率
-* `--excel` (`data/process/十類書名_標籤.xlsx`)：標籤輸出目標
-* **Prompt 可調**：
+* `--regen-range` (e.g., `1100:-1`): Specify index range
+* `--save-every` (`500`): Checkpoint frequency
+* `--excel` (`data/process/title_tags.xlsx`): Tag output target
+* **Configurable Prompt**:
 
-  * `--system-prompt`：system 指令（預設：*你的主要工作是根據每本書的內容，提供對應的主題詞。*）
-  * `--prompt-inline`：直接在 CLI 傳入 user prompt 模板字串（支援 `{title} {author} {summary}` 替換）
-  * `--prompt-file`：從檔案載入模板（UTF-8），同樣支援 `{title} {author} {summary}`
-  * `--temperature`：呼叫 Chat Completions 的溫度（預設 0.3）
+  * `--system-prompt`: System instruction (default: *Your main task is to provide topic tags for each book based on its content.*)
+  * `--prompt-inline`: Pass user prompt template directly via CLI (supports `{title} {author} {summary}` placeholders)
+  * `--prompt-file`: Load template from file (UTF-8), also supports `{title} {author} {summary}`
+  * `--temperature`: Temperature for Chat Completions (default 0.3)
 
-> **Prompt 來源記錄**：`results.meta.json` 的 `prompt_source` 會標註 `default` / `inline` / `file:PATH`。
+> **Prompt Source Logging**: In `results.meta.json`, the field `prompt_source` is labeled as `default` / `inline` / `file:PATH`.
 
-### 4.2 向量庫與檢索
+### 4.2 Embedding Store & Retrieval
 
 * `--embedding-model` (`text-embedding-3-small`)
-* `--rebuild-index` (`false`)：是否重建向量庫（否則載入既有）
-* `--sim-th` (`0.55`)：相似標籤門檻
-* `--tag-topk` (`20`)：每個 term 取相似標籤 Top-K
-* `--topk` (`10`)：回傳最終書籍 Top-K
-* `--mode` (`soft_and`)：book 分數聚合模式（`sum` / `avg` / `min` / `soft_and`）
-* `--use-idf` (`false`)：相似標籤加權是否乘以 tag 的 IDF
-* `--cooccur-bonus` (`0.2`)：`soft_and` 模式對多 term 共現加分
+* `--rebuild-index` (`false`): Whether to rebuild the vector store (otherwise load existing)
+* `--sim-th` (`0.55`): Similar-tag threshold
+* `--tag-topk` (`20`): Similar-tag Top-K per term
+* `--topk` (`10`): Final Top-K books returned
+* `--mode` (`soft_and`): Aggregation mode for book scoring (`sum` / `avg` / `min` / `soft_and`)
+* `--use-idf` (`false`): Whether to multiply similar-tag weights by tag IDF
+* `--cooccur-bonus` (`0.2`): Bonus for multi-term co-occurrence under `soft_and` mode
 
-### 4.3 詞找書（輸入 + BM25 聚合）
+### 4.3 Terms-to-Books Search (Input + BM25 Aggregation)
 
-* `--terms`：分號分隔多組查詢；每組以逗號切分詞（支援全形/半形）
-* `--terms-file`：每行一組查詢（同上格式）
-* **BM25 計分方式**：將查詢切成多個 **term**，**每個 term 分別**與候選書**簡介**計算 BM25 分數，再用下列方式聚合：
+* `--terms`: Multiple queries separated by semicolons; each query split into terms by commas (supports full-width/half-width)
+* `--terms-file`: One query per line (same format)
+* **BM25 Scoring Method**: The query is split into multiple **terms**, **each term** computes BM25 against candidate book **summaries**, then aggregated using:
 
-  * `--terms-bm25-agg {avg|sum|min}`（預設 `avg`）
+  * `--terms-bm25-agg {avg|sum|min}` (default `avg`)
 
-> 詞找書 BM25 亦會沿用 `--bm25-*` 參數（tokenizer/ngram/k1/b）。
+> Terms-to-books BM25 also uses `--bm25-*` parameters (tokenizer/ngram/k1/b).
 
-### 4.4 書找書（輸入 + evaluate）
+### 4.4 books-to-books Search (Input + Evaluation)
 
-* `--books` / `--books-file`：來源書名（分號或逐行）
-* `--bookq-mode-bm25` (`tags|summary`，預設 `tags`）：
-* `--bookq-mode-cosine` (`tags|summary`，預設 `tags`）：
+* `--books` / `--books-file`: Source book titles (semicolon-separated or one per line)
+* `--bookq-mode-bm25` (`tags|summary`, default `tags`):
+* `--bookq-mode-cosine` (`tags|summary`, default `tags`):
 
-  * `tags`：以來源書的**所有標籤**合併為一次查詢
-  * `summary`：以來源書**簡介**當作查詢
-* `--bookq-merged-tf-bm25`（`binary|log|raw`，預設 `binary`）：僅在 `tags` 模式下生效
+  * `tags`: Use all tags of the source book combined as a single query  
+  * `summary`: Use the source book's **summary** as the query
 
-  * `binary`：同一 token 只計一次
-  * `log`：出現 f 次 → 重複 ⌈log(1+f)⌉ 次
-  * `raw`：保留原始頻次
-* `--bookq-normalize-bm25` (`true|false`，預設 `true`)：BM25 分數是否除以查詢長度（避免長查詢佔優）
-* `--bookq-normalize-cosine` (`true|false`，預設 `true`)：cosine similarity 分數是否除以查詢長度（避免長查詢佔優）
+* `--bookq-merged-tf-bm25` (`binary|log|raw`, default `binary`): Only applies under `tags` mode
 
-### 4.5 BM25（共用參數：評估與檢索打分）
+  * `binary`: Token counted once
+  * `log`: Frequency f → repeated ⌈log(1+f)⌉ times
+  * `raw`: Preserve raw token frequency
 
-* `--bm25-tokenizer` (`auto|jieba|whitespace|char`，預設 `auto`)
+* `--bookq-normalize-bm25` (`true|false`, default `true`): Whether to divide BM25 score by query length (prevents long queries from dominating)
+* `--bookq-normalize-cosine` (`true|false`, default `true`): Whether to normalize cosine similarity by query length
 
-  * `auto`：若安裝 `jieba` 則優先使用；否則中文 fallback 到「字元 n-gram」
-* `--bm25-ngram` (`2`)：在 `char`/fallback 模式下的 n（中文建議 2）
-* `--bm25-k1` (`1.2`), `--bm25-b` (`0.75`)：BM25 參數
-* `--bm25-topk-mean` (`5`)：在 **tag-each** 模式下，Top-k 平均（看標籤代表性時很實用）
+### 4.5 BM25 (Shared Parameters: Evaluation & Retrieval Scoring)
 
-### 4.6 Cosine Similarity（共用參數：評估與檢索打分）
+* `--bm25-tokenizer` (`auto|jieba|whitespace|char`, default `auto`)
 
-* `--embedding-level` (`sentence-max|sentence-avg`，預設`sentence-max`)：以所有句子的最大相似度或平均相似度代表整體
-* `--cosine-topk-mean` (`5`)：在 **tag-each** 模式下，Top-k 平均（看標籤代表性時很實用）
+  * `auto`: Use `jieba` if installed; otherwise fallback to **character n-gram** for Chinese
+* `--bm25-ngram` (`2`): n value for `char`/fallback mode (recommended 2 for Chinese)
+* `--bm25-k1` (`1.2`), `--bm25-b` (`0.75`): BM25 parameters
+* `--bm25-topk-mean` (`5`): Top-K average in **tag-each** mode (useful for measuring tag representativeness)
 
-### 4.7 標籤品質評估（可選）(有 BM 和 Cosine Similarity)
+### 4.6 Cosine Similarity (Shared Parameters: Evaluation & Retrieval Scoring)
 
-* `--eval-out-csv`：彙整表（每本書一列）
-* `--eval-out-jsonl`：細節檔（每本書一列，含每個標籤分數）
+* `--embedding-level` (`sentence-max|sentence-avg`, default `sentence-max`): Represent overall similarity by max or average across sentence similarities
+* `--cosine-topk-mean` (`5`): Top-K average in **tag-each** mode (useful for measuring tag representativeness)
+
+### 4.7 Tag Quality Evaluation (Optional)  (with BM25 and Cosine Similarity)
+
+* `--eval-out-csv`: Summary table (one row per book)
+* `--eval-out-jsonl`: Detailed file (one row per book, including scores for each tag)
 
 ---
 
-## 5. 輸出說明
+## 5. Output Description
 
 ### 5.1 `results.jsonl`
 
-每行一筆 JSON：
+Each line is a JSON record:
 
-* **詞找書**：
+* **Terms-to-Books**:
 
   ```json
   {
-    "type": "terms_to_books",
-    "query": "奇幻, 科學",
+    "category": "terms_to_books",
+    "query": "Fantasy, Science",
     "results": [
-      {"書名": "...", "分類": "...", "tags": ["..."], "score": 3.27, "exact_hits": 1, "similar_hits": 5, "bm25_score": 1.482, "cosine_score": 0.393},
+      {"title": "...", "category": "...", "tags": ["..."], "score": 3.27, "exact_hits": 1, "similar_hits": 5, "bm25_score": 1.482, "cosine_score": 0.393},
       ...
     ]
   }
   ```
-* **書找書**：
+* **Books-to-Books**：
 
   ```json
   {
-    "type": "books_to_books", 
-    "source_title": "一億元的分手費", 
+    "category": "books_to_books", 
+    "source_title": "Harry Potter", 
     "bookq_mode_bm25": "tags", 
     "bookq_mode_cosine": "tags", 
     "results": [
-      {"書名": "...", "分類": "...", "score": 5.506, "source_hits": 1, "match_count": 8, "title_sim": 0.332112, "type_sim": 0.32942, "bm25_score": 30.789589, "cosine_score": 0.551491, "bm25_norm": 0.789477, "cosine_norm": 0.014141}
+      {"title": "...", "category": "...", "score": 5.506, "source_hits": 1, "match_count": 8, "title_sim": 0.332112, "category_sim": 0.32942, "bm25_score": 30.789589, "cosine_score": 0.551491, "bm25_norm": 0.789477, "cosine_norm": 0.014141}
       ...
     ]
   }
@@ -299,85 +308,99 @@ python -m bookrec.script \
 
 ### 5.2 `results_terms.csv` & `results_books.csv`
 
-* 結果檔案在 experiment/當日日期 資料夾內
-* **`results_terms.csv`**：彙整所有詞找書查詢。欄位：`query, rank, 書名, 分類, score, bm25_score, cosine_score, exact_hits, similar_hits`。
-* **`results_books.csv`**：彙整所有書找書查詢。欄位：`source_title, bookq_mode_bm25, bookq_mode_cosine, rank, 書名, 分類, score, source_hits, match_count, bm25_score, cosine_score, [title_sim, type_sim, bm25_norm, cosine_norm]`。
+* Result files are located in the `experiment/<date>` folder.
+* **`results_terms.csv`**: Summary of all terms-to-books queries. Columns:  
+  `query, rank, title, category, score, bm25_score, cosine_score, exact_hits, similar_hits`.
+* **`results_books.csv`**: Summary of all books-to-books queries. Columns:  
+  `source_title, bookq_mode_bm25, bookq_mode_cosine, rank, title, category, score, source_hits, match_count, bm25_score, cosine_score, [title_sim, category_sim, bm25_norm, cosine_norm]`.
 
-> 若沒有任何書找書輸出列，`results_books.csv` 不會生成；實際路徑可看 `results.meta.json` 的 `books_csv` 欄位。
+> If there are no books-to-books output rows, `results_books.csv` will not be generated.  
+> The actual file path can be checked in the `books_csv` field inside `results.meta.json`.
 
 ### 5.3 `results.meta.json`
 
 * `start_time`, `end_time`, `elapsed_sec`
-* `args`：所有 CLI 參數（方便重現）
-* `prompt_source`：`default` / `inline` / `file:PATH`
-* `terms_csv`, `books_csv`：兩張彙整表實際路徑（無資料為空字串）
-* 若執行 `--eval-tags-bm25 true`：`bm25_eval_summary_csv`, `bm25_eval_details_jsonl`
-* 若執行 `--eval-tags-cosine true`：`cosine_eval_summary_csv`, `cosine_eval_details_jsonl`
+* `args`: All CLI arguments (for reproducibility)
+* `prompt_source`: `default` / `inline` / `file:PATH`
+* `terms_csv`, `books_csv`: Actual paths for the two summary tables (empty string if not generated)
+* If `--eval-tags-bm25 true` was executed: `bm25_eval_summary_csv`, `bm25_eval_details_jsonl`
+* If `--eval-tags-cosine true` was executed: `cosine_eval_summary_csv`, `cosine_eval_details_jsonl`
 
-### 5.4 標籤 BM25 評估輸出（當 `--eval-tags-bm25 true`）
+### 5.4 Tag BM25 Evaluation Output (when `--eval-tags-bm25 true`)
 
-* `bm25_eval_summary.csv`（每書一列）：
+* `bm25_eval_summary.csv` (one row per book):
 
-  * 範例欄位：`書名, 標籤數, TE_avg, TE_max, TE_max_tag, TE_coverage, TE_top5_mean, TM_score, TM_len, TM_norm, TM_tf, TM_norm_on`
-* `bm25_eval_details.jsonl`（每書一行）：
+  * Example columns:  `title, tag_count, TE_avg, TE_max, TE_max_tag, TE_coverage, TE_top5_mean, TM_score, TM_len, TM_norm, TM_tf, TM_norm_on`
 
-  * `{ "title": "xxx", "scores": [{"tag": "阿德勒心理學", "bm25": 1.234}, ...], "tag_merged_score": 3.21, ... }`
+* `bm25_eval_details.jsonl` (one line per book):
 
-### 5.5 標籤 Cosine Similarity 評估輸出（當 `--eval-tags-cosine true`）
+  * `{ "title": "xxx", "scores": [{"tag": "Adler Psychology", "bm25": 1.234}, ...], "tag_merged_score": 3.21, ... }`
 
-* `cosine_eval_summary.csv`（每書一列）：
+### 5.5 Tag Cosine Similarity Evaluation Output (when `--eval-tags-cosine true`)
 
-  * 範例欄位：`書名, 標籤數, TE_avg, TE_max, TE_max_tag, TE_top5_mean, TM_score, TM_len, TM_norm, TM_norm_on`
-* `bm25_eval_details.jsonl`（每書一行）：
+* `cosine_eval_summary.csv` (one row per book):
 
-  * `{ "title": "xxx", "scores": [{"tag": "阿德勒心理學", "cosine": 1.234}, ...], "tag_merged_score": 3.21, ... }`
+  * Example columns:  `title, tag_count, TE_avg, TE_max, TE_max_tag, TE_top5_mean, TM_score, TM_len, TM_norm, TM_norm_on`
 
----
+* `cosine_eval_details.jsonl` (one line per book):
 
-## 6. 演算法小抄
-
-* **向量檢索**：
-  查詢（terms 或來源書標籤）→ 找相似標籤（FAISS）→ 按書聚合（可選 IDF/模式/共現加分）→ Top-K 書。
-
-* **BM25（文件端一律是候選書「簡介」）**：
-
-  * **詞找書**：將查詢用逗號切成多個 term，**逐 term** 與候選書簡介計分，最後以 `--terms-bm25-agg` 聚合（預設 `avg`）。
-  * **書找書**：Query 來源看 `--bookq-mode-bm25`：
-
-    * `tags`：來源書標籤合併（`binary/log/raw`），可 `--bookq-normalize-bm25`。
-    * `summary`：來源書完整簡介。
-    * 多本書搜尋的分數是取所有查詢書的平均。
-
-* **Cosine Similarity（文件端一律是候選書「簡介」，會拆成句子）**：
-
-  * **詞找書**：將查詢用逗號切成多個 term，**平均 term 的 embedding vector** 與候選書簡介逐句計分，最後以 `--embedding-level-books` 計分（預設 `sentence-max`）。
-  * **書找書**：Query 來源看 `--bookq-mode-cosine`：
-
-    * `tags`：來源書標籤合併（`binary/log/raw`），可 `--bookq-normalize-cosine`。
-    * `summary`：來源書完整簡介，會拆成句子。
-    * 多本書搜尋的分數是取所有查詢書的平均。
+  * `{ "title": "xxx", "scores": [{"tag": "Adler Psychology", "cosine": 1.234}, ...], "tag_merged_score": 3.21, ... }`
 
 ---
 
-## 7. 常見問題（FAQ）
+## 6. Algorithm Tips
 
-* **ModuleNotFoundError: bookrec?** 請在 repo 根目錄執行並用模組模式：`python -m bookrec.script ...`。
-* **Excel 跟向量庫不同步？** 重新產生或修改了標籤 Excel 後，若載入時標籤數不同，請加 `--rebuild-index true` 重建向量庫。
-* **為什麼沒看到 `results_books.csv`？** 未提供 `--books` / `--books-file`、來源書名不匹配、或無任何命中行時皆不會輸出；路徑可看 `results.meta.json` 的 `books_csv`。
-* **BM25 切詞建議？** 安裝 `jieba`；若無，`auto` 會 fallback 到中文字元 n-gram，建議 `--bm25-ngram 2`。
-* **只看一個代表性指標？** 建議看 `TE_top{k}_mean`（預設 k=5），比 `TE_max` 更穩定、比均值更有代表性。
+* **Vector Retrieval**:  
+  Query (terms or source book tags) → find similar tags (FAISS) → aggregate by book (optional IDF/mode/co-occurrence bonus) → Top-K books.
+
+* **BM25 (document side is always the candidate book "summary")**:
+
+  * **Terms-to-Books**: Split the query by commas into multiple terms, compute BM25 **per term** against book summaries, then aggregate using `--terms-bm25-agg` (default `avg`).
+  * **books-to-books**: Query depends on `--bookq-mode-bm25`:
+
+    * `tags`: Source book tags merged (`binary/log/raw`), with optional `--bookq-normalize-bm25`.
+    * `summary`: Source book full summary.
+    * When multiple books are queried, the final score is the average across all source books.
+
+* **Cosine Similarity (document side is always the candidate book "summary", split into sentences)**:
+
+  * **Terms-to-Books**: Split the query into terms by commas, compute scores using the **average embedding vector of all terms**, and compare against each sentence of the candidate summary; final score uses `--embedding-level-books` (default `sentence-max`).
+  * **books-to-books**: Query depends on `--bookq-mode-cosine`:
+
+    * `tags`: Source book tags merged (`binary/log/raw`), with optional `--bookq-normalize-cosine`.
+    * `summary`: Source book full summary, sentence-splitted.
+    * When multiple books are queried, the final score is the average across all source books.
 
 ---
 
-## 8. 範例工作流
+## 7. Frequently Asked Questions (FAQ)
 
-**完整流程（重生標籤 → 標籤評估 → 詞找書 & 書找書）**
+* **ModuleNotFoundError: bookrec?**  
+  Run the script from the repo root using module mode:  `python -m bookrec.script ...`
+
+* **Excel and vector store not synced?**  
+  If you regenerate or modify the tag Excel and the tag count mismatches when loading, add `--rebuild-index true` to rebuild the vector store.
+
+* **Why is `results_books.csv` missing?**  
+  It will not be generated if `--books` / `--books-file` is not provided, the source title does not match, or no rows are returned.  Check the `books_csv` field in `results.meta.json`.
+
+* **BM25 tokenization suggestions?**  
+  Install `jieba`.  If not available, `auto` falls back to Chinese character n-grams; recommended setting: `--bm25-ngram 2`.
+
+* **Looking for one representative metric?**  
+  Use `TE_top{k}_mean` (default k=5).  It is more stable than `TE_max` and more representative than simple averaging.
+
+---
+
+## 8. Example Workflow
+
+**Full pipeline (Regenerate Tags → Tag Evaluation → Terms-to-Books & books-to-books Search)**
 
 ```bash
 python -m bookrec.script \
   --regen-tags true --gpt-model gpt-4o \
   --books-csv data/process/processed_books.csv \
-  --excel data/process/十類書名_標籤.xlsx \
+  --excel data/process/title_tags.xlsx \
   --rebuild-index true \
   --eval-tags-bm25 true \
   --eval-tags-cosine true \
@@ -385,31 +408,29 @@ python -m bookrec.script \
   --eval-out-jsonl-bm25 data/process/bm25_eval_details.jsonl \
   --eval-out-csv-cosine data/process/cosine_eval_summary.csv \
   --eval-out-jsonl-cosine data/process/cosine_eval_details.jsonl \
-  --terms "心理學, 成長; 投資, 財報" \
-  --books "被討厭的勇氣; 原子習慣" \
+  --terms "Psychology, Growth; Investment, Financial Report" \
+  --books "Harry Potter" \
   --bookq-mode-bm25 tags --bookq-merged-tf-bm25 binary --bookq-normalize-bm25 true \
   --bookq-mode-cosine tags --embedding-level-books sentence-max --bookq-normalize-cosine true \
   --topk 10
 ```
 
-> 如需將 **BM25、Cosine Similarity重新排序**（以 `_norm` 或 `_score` 取代向量分數排序）、或把**詞找書 BM25、Cosine Similarity**輸出成 per-term 細項，歡迎提出需求，我們可在 `script.py` 中加入對應開關與輸出欄位。
+## Appendix
+Explanation of book tag quality evaluation metrics  (generated by the `evaluate` function for BM25 and Cosine Similarity)
 
-## 附錄
-書籍標籤品質評估指標（`evaluate` 函式產生的各種指標）說明 (BM25、Cosine Similarity)
+| Metric           | Description                                      |
+|------------------|------------------------------------------------------|
+| **TE_avg**       | Average score across all tags; reflects overall relevance of tags to content. |
+| **TE_max**       | Highest score among all tags; represents the most relevant tag.               |
+| **TE_max_tag**   | The name of the tag with the highest score; helps identify the most representative tag. |
+| **TE_coverage**  | Ratio of tags with score > 0; measures effective tag coverage.                |
+| **TE_topK_mean** | Average of the top K highest-scoring tags (default K=5), avoiding outlier influence. |
+| **TM_score**     | Total BM25 score after merging all tags.  |
+| **TM_len**       | Token count of the merged query, reflecting total tag length. |
+| **TM_norm**      | Normalized score = `TM_score / TM_len` (if normalize_query is enabled).  |
+| **TM_tf**        | Token frequency strategy used when merging tags (e.g., `binary` counts presence only). |
+| **TM_norm_on**   | Whether normalization is enabled (boolean), determining if TM_norm is length-adjusted. |
 
-| 指標            | 說明                                                                 |
-|-----------------|----------------------------------------------------------------------|
-| **TE_avg**      | 各標籤分數的平均值，反映標籤整體與書籍內容的關聯度。             |
-| **TE_max**      | 單一標籤的最高分數，代表最相關的標籤。                           |
-| **TE_max_tag**  | 取得最高分數的標籤名稱，方便定位最具代表性的標籤。                     |
-| **TE_coverage** | 標籤中分數 > 0 的比例，衡量有效標籤覆蓋率。                           |
-| **TE_topK_mean**| 前 K 個最高分數標籤的平均值（預設 K=5），避免單一極端值干擾。          |
-| **TM_score**    | 合併所有標籤後的總 BM25 分數。                                       |
-| **TM_len**      | 合併查詢的 token 數量，反映標籤總長度。                               |
-| **TM_norm**     | 正規化分數 = `TM_score / TM_len` (若啟用 normalize_query)。            |
-| **TM_tf**       | 合併標籤時的詞頻策略（如 `binary` 僅計算是否出現，不考慮次數）。        |
-| **TM_norm_on**  | 是否啟用正規化 (布林值)，決定 TM_norm 是否基於長度修正。              |
-
-> 輸出格式：  
-> - **CSV**：表格化摘要數據  
-> - **JSONL**：逐書紀錄，含每標籤分數細節
+> Output formats:  
+> - **CSV**: Summary table  
+> - **JSONL**: Per-book record including detailed tag scores
