@@ -1,4 +1,4 @@
-書名,標籤數,TE_avg,TE_max,TE_max_tag,TE_top5_mean,TM_score,TM_len,TM_norm,TM_norm_on
+title,標籤數,TE_avg,TE_max,TE_max_tag,TE_top5_mean,TM_score,TM_len,TM_norm,TM_norm_on
 一億元的分手費,20,0.481027,0.745058, 成人小說,0.652911,0.601872,20,0.030094,True
 最新實用內外科護理學（上冊）,20,0.44199,0.60134, 護理師國考,0.526997,0.615005,20,0.03075,True
 最新實用內外科護理學（下冊）,20,0.466766,0.640729, 專有名詞標示,0.570713,0.626621,20,0.031331,True

@@ -1,0 +1,5 @@
+query,rank,title,category,score,bm25_score,cosine_score,exact_hits,similar_hits
+sympathy,1,與你相鬱的日子：給患者與陪伴者的憂鬱症基礎指南,心理學,0.601,0.0,0.30313,0,1
+sympathy,2,共情力與同理心,勵志,0.594,0.0,0.37158,0,1
+sympathy,3,藍色簾子：敘事醫學倫理故事集,醫學用書,0.587,0.0,0.239512,0,1
+sympathy,4,同理心對話：增加談話深度的關鍵技巧,溝通‧談判,0.587,0.0,0.501761,0,1
