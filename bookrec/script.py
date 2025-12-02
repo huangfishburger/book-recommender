@@ -84,7 +84,7 @@ def main():
     p.add_argument("--embedding-model", type=str, default="text-embedding-3-small")
     p.add_argument("--rebuild-index", type=str, default="false", help="true/false: Whether to rebuild the vector store index.")
 
-    # Term-to-Books Search: Inputs
+    # Terms-to-Books Search: Inputs
     p.add_argument("--terms", type=str, default="", help="Direct query input. Separate multiple queries with semicolon; terms within each query are comma-separated. E.g.: 'psychology,growth; investment,finance'")
     p.add_argument("--terms-file", type=str, default="", help="Text file, one query per line (terms separated by commas).")
 
@@ -133,17 +133,17 @@ def main():
     # Books-to-Books Diagnostic Metrics Settings
     p.add_argument("--bookq-title-sim", type=str, default="true", choices=["true","false"],
                 help="Additionally calculate book title similarity for Books-to-Books results.")
-    p.add_argument("--bookq-type-sim", type=str, default="true", choices=["true","false"],
+    p.add_argument("--bookq-category-sim", type=str, default="true", choices=["true","false"],
                 help="Additionally calculate category similarity for Books-to-Books results.")
 
-    # (Optional) Score BM25 for 'Term-to-Books Search' (Now aggregated per-term)
+    # (Optional) Score BM25 for 'Terms-to-Books Search' (Now aggregated per-term)
     p.add_argument("--score-search-bm25", type=str, default="true",
                 help="true/false: Calculate BM25 between each query term and the hit book's summary (aggregated per-term).")
     p.add_argument("--terms-bm25-agg-bm25", dest="terms_bm25_agg",
                 type=str, default="avg", choices=["sum","avg","min"],
-                help="BM25 aggregation for Term-to-Books: aggregate per-term scores using sum/avg/min.")
+                help="BM25 aggregation for Terms-to-Books: aggregate per-term scores using sum/avg/min.")
     
-    # (Optional) Score Cosine Similarity for 'Term-to-Books Search'
+    # (Optional) Score Cosine Similarity for 'Terms-to-Books Search'
     p.add_argument("--score-search-cosine", type=str, default="true",
                 help="true/false: Calculate cosine similarity between each query term and the hit book's summary.")
     p.add_argument("--embedding-level-terms", dest="embedding_level_terms", type=str, default="sentence-max",
@@ -234,7 +234,7 @@ def main():
         )
         print(f"Tag Cosine Similarity Evaluation Completed ->  {args.eval_out_csv_cosine}")
 
-    # 2)  Build/Load Vector Store (used for Term-to-Books / Books-to-Books)
+    # 2)  Build/Load Vector Store (used for Terms-to-Books / Books-to-Books)
     embedder = EmbeddingClient(model=args.embedding_model)
     store = VectorStore(excel_path=args.excel)
     if as_bool(args.rebuild_index):
@@ -242,7 +242,7 @@ def main():
     else:
         store.load()
 
-    # 3)Read queries (Term-to-Books)
+    # 3)Read queries (Terms-to-Books)
     queries = []
     if args.terms:
         for part in args.terms.split(";"):
@@ -283,7 +283,7 @@ def main():
         docs.append(tokens)
     bm25 = BM25(docs, BM25Params(k1=args.bm25_k1, b=args.bm25_b))
 
-    # 5) Term-to-Books search + BM25 scoring (per-term aggregation)
+    # 5) Terms-to-Books search + BM25 scoring (per-term aggregation)
     svc = SearchService(store, embedder)
     out_rows = []
 
@@ -417,21 +417,21 @@ def main():
                             df["title_sim"] = 0.0
                         df["title_sim"] = df["title_sim"] + sim_list_title
 
-                # diagnostic: type
-                if as_bool(args.bookq_type_sim):
+                # diagnostic: category
+                if as_bool(args.bookq_category_sim):
                     src_row = books_df[books_df["title"] == title]
-                    src_type = str(src_row.iloc[0]["type"]) if not src_row.empty else ""
+                    src_category = str(src_row.iloc[0]["category"]) if not src_row.empty else ""
 
-                    src_type_emb = embedder.embed_text(src_type)
-                    src_type_emb = np.ravel(src_type_emb) if src_type_emb is not None else None
+                    src_category_emb = embedder.embed_text(src_category)
+                    src_category_emb = np.ravel(src_category_emb) if src_category_emb is not None else None
 
                     emb = pd.DataFrame()
-                    emb["type_emb"] = df["type"].apply(lambda t: np.ravel(embedder.embed_text(str(t))))
-                    if src_type_emb is not None:
-                        sim_list_type =[1 - cosine_distance(r_emb, src_type_emb) for r_emb in emb["type_emb"]]
-                        if "type_sim" not in df.columns:
-                            df["type_sim"] = 0.0
-                        df["type_sim"] = df["type_sim"] + sim_list_type
+                    emb["category_emb"] = df["category"].apply(lambda t: np.ravel(embedder.embed_text(str(t))))
+                    if src_category_emb is not None:
+                        sim_list_category =[1 - cosine_distance(r_emb, src_category_emb) for r_emb in emb["type_emb"]]
+                        if "category_sim" not in df.columns:
+                            df["category_sim"] = 0.0
+                        df["category_sim"] = df["category_sim"] + sim_list_category
 
                 # score
                 scores_bm = []
@@ -503,9 +503,9 @@ def main():
             if as_bool(args.bookq_title_sim):
                 df["title_sim"] = round(df["title_sim"] / len(title_split),4)
                 show_cols.append("title_sim")
-            if as_bool(args.bookq_type_sim):
-                df["type_sim"] = round(df["type_sim"] / len(title_split),4)
-                show_cols.append("type_sim")
+            if as_bool(args.bookq_category_sim):
+                df["category_sim"] = round(df["category_sim"] / len(title_split),4)
+                show_cols.append("category_sim")
             print(df[show_cols].head(args.topk))
 
             # Accumulate and consolidate results table (rank normalization applied).
@@ -516,7 +516,7 @@ def main():
                     "bookq_mode_cosine": args.bookq_mode_cosine,
                     "rank": rank,
                     "title": row["title"],
-                    "分類": row["分類"],
+                    "category": row["category"],
                     "score": row["score"],
                     "source_hits": row.get("source_hits", ""),
                     "match_count": row.get("match_count", ""),
@@ -529,8 +529,8 @@ def main():
                     rec["cosine_norm"] = row["cosine_norm"]
                 if "title_sim" in row:
                     rec["title_sim"] = row["title_sim"]
-                if "type_sim" in row:
-                    rec["type_sim"] = row["type_sim"]
+                if "category_sim" in row:
+                    rec["category_sim"] = row["category_sim"]
                 books_csv_rows.append(rec)
 
             out_rows.append({
@@ -546,13 +546,13 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         for row in out_rows:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    print(f"\n✓ 結果已存 {out_path}")
+    print(f"\nSuccessfully Save: {out_path}")
 
     # 7.1 Additionally output two "all-in-one" summary tables
     terms_csv_path = out_path.with_name(out_path.stem + "_terms.csv")
     if terms_csv_rows:
         pd.DataFrame(terms_csv_rows).to_csv(terms_csv_path, index=False)
-        print(f"Term-to-Bookss Consolidation: {terms_csv_path}")
+        print(f"Terms-to-Books Consolidation: {terms_csv_path}")
 
     books_csv_path = out_path.with_name(out_path.stem + "_books.csv")
     if books_csv_rows:

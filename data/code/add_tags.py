@@ -94,13 +94,13 @@ def batch_generate_labels(
     if end == -1:
         end = len(books)
 
-    results = pd.DataFrame(columns=["title", "type", "tags"])
+    results = pd.DataFrame(columns=["title", "category", "tags"])
 
     for i in range(start, end):
         title = str(books.loc[i, "title"])
         author = str(books.loc[i, "author"])
         summary = str(books.loc[i, "summary"])
-        type_ = str(books.loc[i, "type"])
+        category_ = str(books.loc[i, "category"])
 
         # Generate tags (using overrideable template/parameters)
         labels = generate_topic_labels(
@@ -118,7 +118,7 @@ def batch_generate_labels(
         labels_list = [label.strip() for label in labels.split("#") if label.strip()]
 
         results.loc[i, "title"] = title
-        results.loc[i, "type"] = type_
+        results.loc[i, "category"] = category_
         results.loc[i, "tags"] = ", ".join(labels_list)
 
         # save
@@ -130,7 +130,7 @@ def batch_generate_labels(
             else:
                 combined = results
             combined.to_excel(output_file, index=False)
-            results = pd.DataFrame(columns=["title", "type", "tags"])
+            results = pd.DataFrame(columns=["title", "category", "tags"])
             print("Successfully save")
 
 if __name__ == "__main__":

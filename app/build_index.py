@@ -16,7 +16,7 @@ def ask(prompt, default=None, cast=str):
 
 def main():
     print("\n=== Build/Update Vector Store (Offline) ===\n")
-    excel  = ask("Excel path", "data/process/十類書名_標籤.xlsx", str)
+    excel  = ask("Excel path", "data/process/title_tags.xlsx", str)
     model  = ask("Embedding model", "text-embedding-3-small", str)
     force  = ask("Rebuild all tag vectors? (Y/n)", True, bool)
 

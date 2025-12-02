@@ -7,8 +7,8 @@ Evaluate tag-to-summary relevance with BM25 (two modes).
 
 Inputs
 ------
-1) Excel with columns [title, type, tags]
-2) CSV with columns [title, author, summary, type]
+1) Excel with columns [title, category, tags]
+2) CSV with columns [title, author, summary, category]
 
 Outputs
 -------
@@ -17,7 +17,7 @@ Outputs
 
 Usage:
 python evaluation.py \
-  --excel data/process/十類title_tags.xlsx \
+  --excel data/process/title_tags.xlsx \
   --books-csv data/process/processed_books.csv \
   --out-csv data/process/artifacts/bm25_eval_summary.csv \
   --out-jsonl data/process/artifacts/bm25_eval_details.jsonl \

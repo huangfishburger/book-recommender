@@ -41,7 +41,7 @@ def str_to_list(s):
 def _load_books_with_tags(excel_path: str | Path) -> pd.DataFrame:
     df = pd.read_excel(excel_path, engine="openpyxl")
     df["tags"] = df['tags'].apply(str_to_list)
-    return df[["title", "type", "tags"]]
+    return df[["title", "category", "tags"]]
 
 # ─────────────────────────────────────────────────────────
 # VectorStore: Build/Load FAISS + Inverted Index + IDF
@@ -198,7 +198,7 @@ class SearchService:
         terms = self._parse_terms(query_input)
         if not terms:
             return pd.DataFrame(
-                columns=["title", "type", "score", "exact_hits", "similar_hits"]
+                columns=["title", "category", "score", "exact_hits", "similar_hits"]
             )
 
         per_term_scores   = {}  # term -> {book_idx: score}
@@ -234,7 +234,7 @@ class SearchService:
         all_books = set().union(*(d.keys() for d in per_term_scores.values()))
         if not all_books:
             return pd.DataFrame(
-                columns=["title", "type", "score", "exact_hits", "similar_hits"]
+                columns=["title", "category", "score", "exact_hits", "similar_hits"]
             )
 
         final_scores       = {}
@@ -271,7 +271,7 @@ class SearchService:
         df = self.store.df
 
         out = (
-            df.loc[[i for i, _ in top], ["title", "type", "tags"]]
+            df.loc[[i for i, _ in top], ["title", "category", "tags"]]
             .assign(
                 score=[round(final_scores[i], 3) for i, _ in top],
                 exact_hits=[exact_hits_count[i] for i, _ in top],
@@ -290,7 +290,7 @@ class SearchService:
         src_titles = self._parse_titles(titles_input)
         # Empty results should include new columns
         if not src_titles:
-            return pd.DataFrame(columns=["title", "type", "match_count", "score", "source_hits"])
+            return pd.DataFrame(columns=["title", "category", "match_count", "score", "source_hits"])
 
         df = self.store.df
 
@@ -338,7 +338,7 @@ class SearchService:
         # Merge candidates from all sources
         all_books = set().union(*per_src_books.values()) if per_src_books else set()
         if not all_books:
-            return pd.DataFrame(columns=["title", "type", "match_count", "score", "source_hits"])
+            return pd.DataFrame(columns=["title", "category", "match_count", "score", "source_hits"])
 
         final_count: dict[int, float] = {}
         final_score: dict[int, float] = {}
@@ -371,13 +371,13 @@ class SearchService:
             final_score[bi] = s_final
 
         if not final_score:
-            return pd.DataFrame(columns=["title", "type", "match_count", "score", "source_hits"])
+            return pd.DataFrame(columns=["title", "category", "match_count", "score", "source_hits"])
 
         # order: Prioritize by match_count, then by score
         cand = sorted(final_score.keys(), key=lambda i: (-final_count[i], -final_score[i]))[:topk]
 
         out = (
-            df.loc[cand, ["title", "type"]]
+            df.loc[cand, ["title", "category"]]
               .assign(
                   score=[round(float(final_score[i]), 3) for i in cand],
                   source_hits=[source_hits[i] for i in cand],
