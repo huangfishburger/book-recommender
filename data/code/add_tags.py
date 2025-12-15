@@ -41,11 +41,17 @@ def process_with_ai(
     temperature: float = 0.3,
 ) -> str:
     try:
-        response = client.chat.completions.create(
+        response = client.responses.create(
             model=model,
-            messages=[
-                {"role": "system", "content": system_prompt or SYSTEM_PROMPT_DEFAULT},
-                {"role": "user", "content": text},
+            input=[
+                {
+                    "role": "system",
+                    "content": system_prompt or SYSTEM_PROMPT_DEFAULT
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
             ],
             temperature=temperature,
         )
