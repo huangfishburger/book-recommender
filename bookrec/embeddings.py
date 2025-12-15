@@ -35,6 +35,6 @@ class EmbeddingClient:
         return out / norms
 
     def embed_text(self, text: str) -> np.ndarray:
-        vec = self.client.embeddings.create(model=self.model, input=[text]).data[0].embedding
+        vec = self.client.embeddings.create(model=self.model, input=text).data[0].embedding
         vec = np.asarray(vec, dtype=np.float32)
         return vec / (np.linalg.norm(vec) + 1e-9)
